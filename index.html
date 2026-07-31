@@ -360,8 +360,12 @@ function fitCircle(p){                       // Kåsa法
   const vc=(suu*(svvv+svuu)-suv*(suuu+suvv))/det;
   const cx=mx+uc, cy=my+vc;
   let r=0; for(const q of p) r+=Math.hypot(q.x-cx,q.y-cy); r/=n;
-  let res=0; for(const q of p) res=Math.max(res,Math.abs(Math.hypot(q.x-cx,q.y-cy)-r));
-  return {cx,cy,r,res};
+  let res=0, sq=0;
+  for(const q of p){
+    const e=Math.hypot(q.x-cx,q.y-cy)-r;
+    res=Math.max(res,Math.abs(e)); sq+=e*e;
+  }
+  return {cx,cy,r,res,rms:Math.sqrt(sq/n)};
 }
 
 /* ---------------- 分数 ---------------- */
@@ -449,6 +453,27 @@ function strokePolys(st){ return st.segs.map(segPoly); }
 function snapVal(v,g){ return g>0 ? Math.round(v/g)*g : v; }
 function snapPt(p,g){ return {x:snapVal(p.x,g), y:snapVal(p.y,g)}; }
 
+/* 点から線分までの距離 */
+function segDist(p,a,b){
+  const dx=b.x-a.x, dy=b.y-a.y, L2=dx*dx+dy*dy;
+  if(L2<1e-12) return dist(p,a);
+  let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/L2;
+  t=clamp(t,0,1);
+  return Math.hypot(p.x-(a.x+dx*t), p.y-(a.y+dy*t));
+}
+/* 折れ線 V で近似したときのずれ（円のずれと比べるために使う） */
+function polyRms(R,V,closed){
+  if(V.length<2) return Infinity;
+  let sq=0;
+  for(const p of R){
+    let best=Infinity;
+    const n=V.length-(closed?0:1);
+    for(let i=0;i<n;i++) best=Math.min(best, segDist(p,V[i],V[(i+1)%V.length]));
+    sq+=best*best;
+  }
+  return Math.sqrt(sq/R.length);
+}
+
 /* 近すぎる頂点と、ほぼ一直線上の頂点を落とす */
 function cleanCorners(V,L){
   let out=V.filter((p,i)=>i===0||dist(p,V[i-1])>0.02*L);
@@ -476,27 +501,6 @@ function beautify(raw, grid){
   const R=resample(pts,160);
   const closed = dist(R[0],R[R.length-1]) < Math.max(0.16*L, 0.5);
 
-  // 円・円弧
-  const cf=fitCircle(R);
-  if(cf && cf.r>0.25 && cf.r<12 && cf.res < Math.max(0.09*cf.r, 0.12)){
-    if(closed){
-      const c=snapPt({x:cf.cx,y:cf.cy},grid);
-      const r=Math.max(grid>0?grid:0.1, snapVal(cf.r,grid>0?grid/1:0));
-      return [{t:"A",cx:c.x,cy:c.y,r:r,a0:0,a1:2*Math.PI}];
-    }
-    // 開いた弧：総回転角が十分あれば弧とみなす
-    let total=0, prev=Math.atan2(R[0].y-cf.cy,R[0].x-cf.cx);
-    for(let i=1;i<R.length;i++){
-      let a=Math.atan2(R[i].y-cf.cy,R[i].x-cf.cx), d=a-prev;
-      while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
-      total+=d; prev=a;
-    }
-    if(Math.abs(total)>0.7){
-      const a0=Math.atan2(R[0].y-cf.cy,R[0].x-cf.cx);
-      return [{t:"A",cx:round(cf.cx,3),cy:round(cf.cy,3),r:round(cf.r,3),a0:a0,a1:a0+total}];
-    }
-  }
-
   // 角の抽出
   let corners;
   if(closed){
@@ -511,6 +515,53 @@ function beautify(raw, grid){
     corners=cleanCorners(corners, L);
   }else{
     corners=rdp(R, 0.02*L);
+  }
+  // はっきり折れている角の数（多角形か、なめらかな曲線かの目安）
+  const sharpCount=(V)=>{
+    let n=0;
+    for(let i=0;i<V.length;i++){
+      const a=V[(i-1+V.length)%V.length], b=V[i], c=V[(i+1)%V.length];
+      const a1=Math.atan2(b.y-a.y,b.x-a.x), a2=Math.atan2(c.y-b.y,c.x-b.x);
+      let d=Math.abs(a2-a1); if(d>Math.PI) d=2*Math.PI-d;
+      if(d*180/Math.PI>55) n++;
+    }
+    return n;
+  };
+
+  const cf=fitCircle(R);
+  const roundish = cf && cf.r>0.25 && cf.r<12;
+  // 折れ線として見たときのずれ。円のずれがこれより小さければ「円」と判断する
+  const pr = polyRms(R, corners, closed);
+
+  // 円：折れ線で近似するより円で近似したほうが合っているとき
+  if(closed && roundish && corners.length>=3 &&
+     (cf.rms < 0.03*cf.r || cf.rms < 1.25*pr)){
+    const c=snapPt({x:cf.cx,y:cf.cy},grid);
+    const r=Math.max(grid>0?grid:0.1, snapVal(cf.r,grid));
+    return [{t:"A",cx:c.x,cy:c.y,r:r,a0:0,a1:2*Math.PI}];
+  }
+  // 円弧：開いた線で、ぐるっと曲がっていて、弦からのふくらみが十分あるとき
+  const bulge=(()=>{
+    const a=R[0], b=R[R.length-1], chord=dist(a,b);
+    if(chord<1e-6) return 1;
+    let mx=0; for(const p of R) mx=Math.max(mx, segDist(p,a,b));
+    return mx/chord;
+  })();
+  if(!closed && roundish && bulge>0.10 && cf.rms < 1.25*pr){
+    let total=0, prev=Math.atan2(R[0].y-cf.cy,R[0].x-cf.cx);
+    for(let i=1;i<R.length;i++){
+      let a=Math.atan2(R[i].y-cf.cy,R[i].x-cf.cx), d=a-prev;
+      while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+      total+=d; prev=a;
+    }
+    if(Math.abs(total)>0.7){
+      const a0=Math.atan2(R[0].y-cf.cy,R[0].x-cf.cx);
+      return [{t:"A",cx:round(cf.cx,3),cy:round(cf.cy,3),r:round(cf.r,3),a0:a0,a1:a0+total}];
+    }
+  }
+  // 角の数のわりに折れている所が少なければ、多角形にせず なめらかな曲線にする（楕円など）
+  if(closed && corners.length>=5 && sharpCount(corners)<=2){
+    corners=[];
   }
 
   // 直線
