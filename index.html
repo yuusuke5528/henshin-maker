@@ -257,6 +257,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button id="spin">自動回転</button>
           <span style="flex:1"></span>
           <button id="pairShift" title="どの線とどの線を組にするかを変える">対応を変える</button>
+          <label class="chk" title="線を少なくするか、1本につながることを優先するか"><input type="checkbox" id="optSimple" checked>線を少なく</label>
           <label class="chk"><input type="checkbox" id="optAxes" checked>座標軸</label>
         </div>
       </section>
@@ -852,14 +853,15 @@ const state={
   strokes:{A:[],B:[]},
   pairShift:0,
   az:-58, el:24, roll:0, zoom:1, stretch:1,
-  spin:false, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:true,
+  spin:false, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:true, simple:true,
   view:0, tint:0    // view: 0=自由 1=視点① 2=視点②
 };
 let model=null;
 
-function buildOnce(shift){
+function buildOnce(shift, simple){
   let SA=state.strokes.A, SB=state.strokes.B;
   const warns=[], curves=[], rows=[];
+  let gaps=0;
 
   if(SA.length && SB.length){
     const ea=xExtent(SA), eb=xExtent(SB);
@@ -884,6 +886,11 @@ function buildOnce(shift){
     if(hi-lo<1e-6){
       warns.push("2つの図形の x の範囲が重なっていません。横に並べ直してください。");
     }else{
+      if(simple){
+        const r=buildMinimal(A,B,lo,hi,shift);
+        mergeTouching(r.curves);
+        return {curves:r.curves, rows:r.rows, warns, SA, SB, gaps:r.gaps};
+      }
       const used={A:new Set(), B:new Set()};
       const covA=new Map(), covB=new Map();
       const runs=[];
@@ -911,9 +918,118 @@ function buildOnce(shift){
       }
       for(const r of runs){ curves.push(r.pts); for(const row of r.rows) rows.push(row); }
       mergeTouching(curves);
+      gaps=(findGap(A,covA,lo,hi)?1:0)+(findGap(B,covB,lo,hi)?1:0);
     }
   }
-  return {curves,rows,warns,SA,SB};
+  return {curves,rows,warns,SA,SB,gaps};
+}
+
+/* 弧 a と弧 b を x=xa..xb で組にしたときの立体の一片 */
+function piecePts(a,b,xa,xb){
+  const pts=[], rows=[];
+  const lo=Math.min(xa,xb), hi=Math.max(xa,xb);
+  if(hi-lo<1e-7) return {pts,rows};
+  const cuts=new Set([lo,hi]);
+  for(const src of [a,b]) for(const p of src.pieces){
+    if(p.x0>lo+1e-7&&p.x0<hi-1e-7) cuts.add(p.x0);
+    if(p.x1>lo+1e-7&&p.x1<hi-1e-7) cuts.add(p.x1);
+  }
+  const xs=[...cuts].sort((u,v)=>u-v);
+  for(let k=0;k+1<xs.length;k++){
+    const s0=xs[k], s1=xs[k+1], mid=(s0+s1)/2;
+    const pa=a.pieceAt(mid), pb=b.pieceAt(mid);
+    const lin=pa.linear&&pb.linear, M=lin?2:64;
+    for(let q=0;q<M;q++){
+      const u=q/(M-1), w=lin?u:(1-Math.cos(Math.PI*u))/2;
+      const t=s0+(s1-s0)*w, f=a.f(t), g=b.f(t);
+      const P=[t,(f+g)/2,(f-g)/2];
+      const last=pts[pts.length-1];
+      if(!last||Math.abs(last[0]-P[0])>1e-9||Math.abs(last[1]-P[1])>1e-9||Math.abs(last[2]-P[2])>1e-9) pts.push(P);
+    }
+    rows.push({s:s0, e:s1, a:pa, b:pb});
+  }
+  return {pts,rows};
+}
+
+/* 端がくっついている一片どうしをつないで、できるだけ長い線にする */
+function chainPieces(list){
+  const key=p=>p.map(v=>Math.round(v*1e4)).join(",");
+  const out=list.filter(c=>c.length>1).map(c=>c.slice());
+  for(let guard=0; guard<out.length*out.length+8; guard++){
+    let joined=false;
+    for(let i=0;i<out.length && !joined;i++){
+      for(let j=i+1;j<out.length && !joined;j++){
+        const P=out[i], Q=out[j];
+        const ps=key(P[0]), pe=key(P[P.length-1]), qs=key(Q[0]), qe=key(Q[Q.length-1]);
+        if(ps===pe) continue;                       // すでに輪になっている
+        if(pe===qs)      out[i]=P.concat(Q.slice(1));
+        else if(pe===qe) out[i]=P.concat(Q.slice(0,-1).reverse());
+        else if(ps===qe) out[i]=Q.concat(P.slice(1));
+        else if(ps===qs) out[i]=Q.slice().reverse().concat(P.slice(1));
+        else continue;
+        out.splice(j,1); joined=true;
+      }
+    }
+    if(!joined) break;
+  }
+  return out;
+}
+
+/* マニュアル方式：各線を「いちばん近い相手」と1回ずつ組ませる（線が少ない） */
+function buildMinimal(A,B,lo,hi,shift){
+  const curves=[], rows=[];
+  const partner=new Map();                 // A の弧 → B の弧
+  const covA=new Map(), covB=new Map();
+  const push=(a,b,x0,x1)=>{
+    const s=Math.min(x0,x1), e=Math.max(x0,x1);
+    if(e-s<1e-7) return;
+    const r=piecePts(a,b,s,e);
+    if(r.pts.length<2) return;
+    curves.push(r.pts); for(const w of r.rows) rows.push(w);
+    addSpan(covA,a.gid,s,e); addSpan(covB,b.gid,s,e);
+  };
+  for(const a of A.arcs){
+    const s=Math.max(a.x0,lo), e=Math.min(a.x1,hi);
+    if(e-s<1e-6) continue;
+    const b=pickPartner(a,B,(s+e)/2,shift);
+    if(!b) continue;
+    partner.set(a.gid,b);
+    push(a,b,Math.max(s,b.x0),Math.min(e,b.x1));
+  }
+  // 図形Aの縦線
+  for(const o of A.outlines) o.arcs.forEach((a,k)=>{
+    const jt=o.joints[k]; if(!jt) return;
+    const b=partner.get(a.gid); if(!b) return;
+    const w=b.f(clamp(jt.x,b.x0,b.x1));
+    curves.push([[jt.x,(jt.ya+w)/2,(jt.ya-w)/2],[jt.x,(jt.yb+w)/2,(jt.yb-w)/2]]);
+    rows.push({vert:true, which:"A", v:{x:jt.x, y0:Math.min(jt.ya,jt.yb), y1:Math.max(jt.ya,jt.yb)}});
+  });
+  // 使われていない所を、A側・B側の両方について埋める
+  for(let guard=0; guard<60; guard++){
+    let isA=true, g=findGap(A,covA,lo,hi);
+    if(!g){ isA=false; g=findGap(B,covB,lo,hi); }
+    if(!g) break;
+    const other = isA?B:A;
+    const cand=other.arcs.filter(c=>c.x0<=g.x+1e-6&&c.x1>=g.x-1e-6);
+    if(!cand.length) break;
+    const y=g.arc.f(clamp(g.x,g.arc.x0,g.arc.x1));
+    cand.sort((u,v)=>Math.abs(u.f(clamp(g.x,u.x0,u.x1))-y)-Math.abs(v.f(clamp(g.x,v.x0,v.x1))-y));
+    const m=cand[0];
+    const x1=Math.min(g.arc.x1, m.x1, hi);
+    if(x1-g.x<1e-6) break;
+    push(isA?g.arc:m, isA?m:g.arc, g.x, x1);
+  }
+  // 図形Bの縦線
+  for(const o of B.outlines) o.arcs.forEach((b,k)=>{
+    const jt=o.joints[k]; if(!jt) return;
+    const cand=A.arcs.filter(c=>c.x0<=jt.x+1e-6&&c.x1>=jt.x-1e-6);
+    if(!cand.length) return;
+    const w=cand[0].f(clamp(jt.x,cand[0].x0,cand[0].x1));
+    curves.push([[jt.x,(w+jt.ya)/2,(w-jt.ya)/2],[jt.x,(w+jt.yb)/2,(w-jt.yb)/2]]);
+    rows.push({vert:true, which:"B", v:{x:jt.x, y0:Math.min(jt.ya,jt.yb), y1:Math.max(jt.ya,jt.yb)}});
+  });
+  const rest=(findGap(A,covA,lo,hi)?1:0)+(findGap(B,covB,lo,hi)?1:0);
+  return {curves:chainPieces(curves), rows, gaps:rest};
 }
 
 /* 別々にできた輪が同じ点を通っていたら、そこでつないで1本にする */
@@ -944,6 +1060,31 @@ function mergeTouching(curves){
 }
 
 /* 組み合わせをいくつか試して、いちばん線の少ないものを選ぶ */
+/* 真上（xy平面）から見たときに線どうしが重なる長さ */
+function overlapScore(curves){
+  const S=[];
+  for(const c of curves) for(let i=1;i<c.length;i++){
+    const ax=c[i-1][0], ay=c[i-1][1], bx=c[i][0], by=c[i][1];
+    const L=Math.hypot(bx-ax,by-ay);
+    if(L>0.08) S.push([ax,ay,bx,by,L]);
+  }
+  if(S.length>200) return 0;                 // 曲線が細かいときは省略
+  let tot=0;
+  for(let i=0;i<S.length;i++){
+    const [ax,ay,bx,by,L]=S[i];
+    const dx=bx-ax, dy=by-ay;
+    for(let j=i+1;j<S.length;j++){
+      const Q=S[j];
+      const cr=(x,y)=>Math.abs(dy*(x-ax)-dx*(y-ay))/L;
+      if(cr(Q[0],Q[1])>0.03||cr(Q[2],Q[3])>0.03) continue;
+      const pr=(x,y)=>((x-ax)*dx+(y-ay)*dy)/(L*L);
+      const p0=pr(Q[0],Q[1]), p1=pr(Q[2],Q[3]);
+      const t0=Math.max(0,Math.min(p0,p1)), t1=Math.min(1,Math.max(p0,p1));
+      if(t1-t0>1e-3) tot+=(t1-t0)*L;
+    }
+  }
+  return round(tot,2);
+}
 function scoreModel(m){
   let segs=0, len=0;
   for(const c of m.curves) for(let i=1;i<c.length;i++){
@@ -951,22 +1092,29 @@ function scoreModel(m){
     const d=Math.hypot(p[0]-q[0],p[1]-q[1],p[2]-q[2]);
     if(d>1e-7){ segs++; len+=d; }
   }
-  return [m.curves.length||1e9, segs||1e9, round(len,3)];
+  return {gaps:m.gaps||0, curves:m.curves.length||1e9, segs:segs||1e9,
+          over:overlapScore(m.curves), len:round(len,3)};
 }
 function buildModel(){
   const cands=[], seen=new Set();
-  for(let s=0;s<5;s++){
-    const m=buildOnce(s);
+  for(const sm of [true,false]) for(let s=0;s<4;s++){
+    const m=buildOnce(s,sm);
     const sc=scoreModel(m);
-    const key=sc.join("/");
+    const key=[sc.gaps,sc.curves,sc.segs,sc.over,sc.len].join("/");
     if(seen.has(key)) continue;
     seen.add(key);
     cands.push({m,sc});
   }
-  cands.sort((a,b)=>a.sc[0]-b.sc[0]||a.sc[1]-b.sc[1]||a.sc[2]-b.sc[2]);
-  // 極端に線が増える組み合わせは候補から外す
+  if(!cands.length){ const m=buildOnce(0,true); cands.push({m,sc:scoreModel(m)}); }
+  // 欠けがないこと → 真上で重ならないこと → の順に見て、
+  // 「線を少なく」なら線分数を、そうでなければ本数を優先する
+  cands.sort(state.simple
+    ? (a,b)=>a.sc.gaps-b.sc.gaps||a.sc.over-b.sc.over||a.sc.segs-b.sc.segs||a.sc.curves-b.sc.curves||a.sc.len-b.sc.len
+    : (a,b)=>a.sc.gaps-b.sc.gaps||a.sc.curves-b.sc.curves||a.sc.over-b.sc.over||a.sc.segs-b.sc.segs||a.sc.len-b.sc.len);
+  // 極端に悪い組み合わせは候補から外す
   const best=cands[0].sc;
-  const good=cands.filter(c=>c.sc[0]<=Math.max(2,best[0]) && c.sc[1]<=best[1]*1.5+2);
+  const good=cands.filter(c=>c.sc.gaps===best.gaps && c.sc.curves<=Math.max(best.curves+1,2)
+    && c.sc.segs<=best.segs*1.5+2 && c.sc.over<=best.over+0.5);
   const list=good.length?good:[cands[0]];
   const pick=list[((state.pairShift%list.length)+list.length)%list.length];
   model=pick.m;
@@ -1569,6 +1717,7 @@ function bind(){
   spin.onclick=()=>{state.spin=!state.spin;spin.classList.toggle("on",state.spin);
     if(state.spin){setOn(null);state.view=0;state.tint=0;state.stretch=1;state.roll=0;}};
   document.getElementById("pairShift").onclick=()=>{state.pairShift++;recompute();};
+  document.getElementById("optSimple").onchange=e=>{state.simple=e.target.checked;recompute();};
 
   document.getElementById("btnTex").onclick=()=>{document.getElementById("out").value=texOut();};
   document.getElementById("btnTikz").onclick=()=>{document.getElementById("out").value=tikzOut();};
