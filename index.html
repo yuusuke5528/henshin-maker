@@ -807,14 +807,7 @@ function traceWire(A, B, a0, b0, d0, used, startX){
       const s0=xs[k], s1=xs[k+1];
       const mid=(s0+s1)/2;
       const pa=a.pieceAt(mid), pb=b.pieceAt(mid);
-      const lin=pa.linear&&pb.linear;
-      const M=lin?2:64;
-      for(let q=0;q<M;q++){
-        const u=q/(M-1);
-        // 円弧は端で傾きが急なので、両端を細かくとる
-        const w=lin?u:(1-Math.cos(Math.PI*u))/2;
-        put(s0+(s1-s0)*w);
-      }
+      for(const t of sampleTs(a,b,s0,s1)) put(t);
       rows.push({s:Math.min(s0,s1), e:Math.max(s0,s1), a:pa, b:pb});
     }
   };
@@ -975,6 +968,25 @@ function buildOnce(shift, simple){
   return {curves,rows,warns,SA,SB,gaps};
 }
 
+/* 区間 s0..s1 を刻む位置。曲線の折れ点は必ず通るようにする */
+function sampleTs(a,b,s0,s1){
+  const mid=(s0+s1)/2;
+  const pa=a.pieceAt(mid), pb=b.pieceAt(mid);
+  const set=new Set([s0,s1]);
+  if(!(pa.linear&&pb.linear)){
+    const M=72;
+    for(let q=1;q<M-1;q++){
+      const u=q/(M-1);
+      set.add(s0+(s1-s0)*(1-Math.cos(Math.PI*u))/2);
+    }
+  }
+  const lo=Math.min(s0,s1), hi=Math.max(s0,s1);
+  for(const p of [pa,pb]) if(p.kind==="poly")
+    for(const v of p.pts) if(v.x>lo+1e-9 && v.x<hi-1e-9) set.add(v.x);
+  const ts=[...set].sort((u,v)=>u-v);
+  return s1<s0 ? ts.reverse() : ts;
+}
+
 /* 弧 a と弧 b を x=xa..xb で組にしたときの立体の一片 */
 function piecePts(a,b,xa,xb){
   const pts=[], rows=[];
@@ -989,10 +1001,8 @@ function piecePts(a,b,xa,xb){
   for(let k=0;k+1<xs.length;k++){
     const s0=xs[k], s1=xs[k+1], mid=(s0+s1)/2;
     const pa=a.pieceAt(mid), pb=b.pieceAt(mid);
-    const lin=pa.linear&&pb.linear, M=lin?2:64;
-    for(let q=0;q<M;q++){
-      const u=q/(M-1), w=lin?u:(1-Math.cos(Math.PI*u))/2;
-      const t=s0+(s1-s0)*w, f=a.f(t), g=b.f(t);
+    for(const t of sampleTs(a,b,s0,s1)){
+      const f=a.f(t), g=b.f(t);
       const P=[t,(f+g)/2,(f-g)/2];
       const last=pts[pts.length-1];
       if(!last||Math.abs(last[0]-P[0])>1e-9||Math.abs(last[1]-P[1])>1e-9||Math.abs(last[2]-P[2])>1e-9) pts.push(P);
@@ -1111,30 +1121,31 @@ function mergeTouching(curves){
 }
 
 /* 組み合わせをいくつか試して、いちばん線の少ないものを選ぶ */
-/* 真上（xy平面）から見たときに線どうしが重なる長さ */
+/* 真上から見たとき「x,y が同じで z だけ違う点」がある x の割合（%） */
+const TOP_EPS=0.04;
 function overlapScore(curves){
-  const S=[];
-  for(const c of curves) for(let i=1;i<c.length;i++){
-    const ax=c[i-1][0], ay=c[i-1][1], bx=c[i][0], by=c[i][1];
-    const L=Math.hypot(bx-ax,by-ay);
-    if(L>0.08) S.push([ax,ay,bx,by,L]);
-  }
-  if(S.length>200) return 0;                 // 曲線が細かいときは省略
-  let tot=0;
-  for(let i=0;i<S.length;i++){
-    const [ax,ay,bx,by,L]=S[i];
-    const dx=bx-ax, dy=by-ay;
-    for(let j=i+1;j<S.length;j++){
-      const Q=S[j];
-      const cr=(x,y)=>Math.abs(dy*(x-ax)-dx*(y-ay))/L;
-      if(cr(Q[0],Q[1])>0.03||cr(Q[2],Q[3])>0.03) continue;
-      const pr=(x,y)=>((x-ax)*dx+(y-ay)*dy)/(L*L);
-      const p0=pr(Q[0],Q[1]), p1=pr(Q[2],Q[3]);
-      const t0=Math.max(0,Math.min(p0,p1)), t1=Math.min(1,Math.max(p0,p1));
-      if(t1-t0>1e-3) tot+=(t1-t0)*L;
+  let lo=Infinity, hi=-Infinity;
+  for(const c of curves) for(const p of c){ if(p[0]<lo)lo=p[0]; if(p[0]>hi)hi=p[0]; }
+  if(!(hi>lo)) return 0;
+  const N=140; let bad=0;
+  const buf=[];
+  for(let i=0;i<=N;i++){
+    const x=lo+(hi-lo)*i/N;
+    buf.length=0;
+    for(const c of curves) for(let k=1;k<c.length;k++){
+      const p=c[k-1], q=c[k];
+      const a=p[0]<q[0]?p[0]:q[0], b=p[0]<q[0]?q[0]:p[0];
+      if(x<a-1e-9||x>b+1e-9) continue;
+      const w=q[0]-p[0], u=Math.abs(w)<1e-12?0:(x-p[0])/w;
+      buf.push(p[1]+(q[1]-p[1])*u, p[2]+(q[2]-p[2])*u);
     }
+    let hit=false;
+    for(let a=0;a<buf.length && !hit;a+=2)
+      for(let b=a+2;b<buf.length;b+=2)
+        if(Math.abs(buf[a]-buf[b])<TOP_EPS && Math.abs(buf[a+1]-buf[b+1])>TOP_EPS){ hit=true; break; }
+    if(hit) bad++;
   }
-  return round(tot,2);
+  return round(bad/(N+1)*100,2);
 }
 function scoreModel(m){
   let segs=0, len=0;
@@ -1171,6 +1182,7 @@ function buildModel(){
   model=pick.m;
   model.alts=list.length;
   model.rank=list.indexOf(pick)+1;
+  model.over=pick.sc.over;
   if(model.curves.length>2)
     model.warns.push(`立体が ${model.curves.length} 本の線に分かれました。`);
   return model;
@@ -1377,7 +1389,9 @@ function draw3D(){
   }
   ctx.globalAlpha=1;
   document.getElementById("stat3d").textContent=
-    `${model.curves.length} 本` + (model.alts>1?` ・ 案${model.rank}/${model.alts}`:"");
+    `${model.curves.length} 本` +
+    (model.over>0.2?` ・ 真上で重なり ${model.over}%`:" ・ 真上で重なりなし") +
+    (model.alts>1?` ・ 案${model.rank}/${model.alts}`:"");
 }
 
 /* =================================================================
