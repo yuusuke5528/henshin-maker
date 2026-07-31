@@ -89,6 +89,17 @@ button.go:hover{filter:brightness(1.1)}
 .board__hd .note{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
 .dot{width:9px;height:9px;border-radius:50%;flex:none}
 canvas.draw{display:block;width:100%;background:var(--board);touch-action:none;cursor:crosshair}
+/* 右側のスクロール用の帯：ここは指でなぞってもページが動くだけ */
+.pad{display:flex;align-items:stretch;background:var(--board)}
+.pad>canvas{flex:1 1 auto;min-width:0}
+.scrollpad{flex:0 0 clamp(38px,8vw,60px);touch-action:pan-y;position:relative;
+  border-left:1px dashed var(--line);
+  display:flex;align-items:center;justify-content:center;cursor:ns-resize}
+.scrollpad span{writing-mode:vertical-rl;font-size:10.5px;letter-spacing:.28em;
+  color:var(--ink-3);user-select:none}
+.view .pad{background:var(--screen)}
+.view .scrollpad{border-left-color:var(--screen-line)}
+.view .scrollpad span{color:var(--screen-ink-2)}
 .board__ft{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:7px 10px;border-top:1px solid var(--line-2)}
 .board__ft .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 3px}
 .chip{font-size:11.5px;padding:4px 8px}
@@ -187,7 +198,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <b>図形A</b><span style="color:var(--ink-2);font-size:12px">視点①から見える形</span>
           <span class="note" id="statA">—</span>
         </div>
-        <canvas class="draw" id="cvA"></canvas>
+        <div class="pad"><canvas class="draw" id="cvA"></canvas>
+          <div class="scrollpad"><span>スクロール</span></div></div>
         <div class="board__ft">
           <button class="chip" data-undo="A">1つ戻す</button>
           <button class="chip" data-clear="A">消す</button>
@@ -206,7 +218,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <b>図形B</b><span style="color:var(--ink-2);font-size:12px">視点②から見える形</span>
           <span class="note" id="statB">—</span>
         </div>
-        <canvas class="draw" id="cvB"></canvas>
+        <div class="pad"><canvas class="draw" id="cvB"></canvas>
+          <div class="scrollpad"><span>スクロール</span></div></div>
         <div class="board__ft">
           <button class="chip" data-undo="B">1つ戻す</button>
           <button class="chip" data-clear="B">消す</button>
@@ -233,7 +246,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
             </select>
           </label>
           <span class="sep"></span>
-          <label class="chk" title="2つの図形の横幅が違うときに、xだけ伸縮してそろえます"><input type="checkbox" id="optFitX">横幅をそろえる</label>
+          <label class="chk" title="2つの図形の横幅が違うときに、xだけ伸縮してそろえます"><input type="checkbox" id="optFitX" checked>横幅をそろえる</label>
         </div>
       </section>
     </div>
@@ -244,7 +257,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <b>立体</b><span style="color:var(--screen-ink-2);font-size:12px">ドラッグで回転</span>
           <span class="note" id="stat3d">—</span>
         </div>
-        <canvas id="cv3d"></canvas>
+        <div class="pad"><canvas id="cv3d"></canvas>
+          <div class="scrollpad"><span>スクロール</span></div></div>
         <div class="view__ft">
           <button id="v1">視点①（Aが見える）</button>
           <button id="v2">視点②（Bが見える）</button>
@@ -572,69 +586,70 @@ function beautify(raw, grid){
 }
 
 /* =================================================================
-   枝分け： y=f(x) の形に切る
-   branch: {kind, x0, x1, f(x)}  /  vert: {vert:true, x, y0, y1}
+   図形を「xについて単調な弧」の輪に分解する
+   piece : 1本の式で書ける部分   {dir, x0, x1, kind, f(x)}
+           dir=0 は縦線          {dir:0, x, ya, yb}
+   arc   : 同じ向きに進む piece をつないだもの
+   joint : 弧と弧の間に挟まる縦線
    ================================================================= */
-function branchesOfSeg(seg){
+function strokePieces(st){
   const out=[];
-  if(seg.t==="L"){
-    const {a,b}=seg;
-    if(Math.abs(b.x-a.x)<VERT_EPS){
-      out.push({vert:true, x:(a.x+b.x)/2, y0:Math.min(a.y,b.y), y1:Math.max(a.y,b.y)});
-    }else{
-      const p=(b.y-a.y)/(b.x-a.x), q=a.y-p*a.x;
-      out.push({kind:"line", p, q, x0:Math.min(a.x,b.x), x1:Math.max(a.x,b.x),
-                f:(x)=>p*x+q, linear:true});
-    }
-    return out;
-  }
-  if(seg.t==="A"){
-    const {cx,cy,r}=seg;
-    let a0=seg.a0, a1=seg.a1;
-    const dir=a1>=a0?1:-1;
-    // 0, π の倍数で分割（そこが x の極値）
-    const cuts=[a0];
-    let k = dir>0 ? Math.ceil(a0/Math.PI) : Math.floor(a0/Math.PI);
-    while(dir>0 ? k*Math.PI<a1 : k*Math.PI>a1){
-      if(Math.abs(k*Math.PI-a0)>1e-6) cuts.push(k*Math.PI);
-      k+=dir;
-    }
-    cuts.push(a1);
-    for(let i=0;i+1<cuts.length;i++){
-      const t0=cuts[i], t1=cuts[i+1];
-      if(Math.abs(t1-t0)<1e-6) continue;
-      const s=Math.sin((t0+t1)/2)>=0?1:-1;
-      const xa=cx+r*Math.cos(t0), xb=cx+r*Math.cos(t1);
-      const x0=Math.min(xa,xb), x1=Math.max(xa,xb);
-      if(x1-x0<1e-6) continue;
-      out.push({kind:"arc", cx,cy,r,s, x0,x1,
-        f:(x)=>cy+s*Math.sqrt(Math.max(0,r*r-(x-cx)*(x-cx)))});
-    }
-    return out;
-  }
-  // 自由曲線：x の極値で切る
-  const p=seg.pts;
-  let cur=[p[0]], dir=0;
-  const push=(arr)=>{
-    if(arr.length<2) return;
-    const q = arr[0].x<=arr[arr.length-1].x ? arr : arr.slice().reverse();
-    const x0=q[0].x, x1=q[q.length-1].x;
-    if(x1-x0<VERT_EPS){
-      let y0=Infinity,y1=-Infinity; for(const w of q){y0=Math.min(y0,w.y);y1=Math.max(y1,w.y);}
-      out.push({vert:true, x:(x0+x1)/2, y0, y1});
+  const pushPoly=(chunk)=>{
+    if(chunk.length<2) return;
+    const xa=chunk[0].x, xb=chunk[chunk.length-1].x;
+    if(Math.abs(xb-xa)<VERT_EPS){
+      out.push({dir:0, x:(xa+xb)/2, ya:chunk[0].y, yb:chunk[chunk.length-1].y});
       return;
     }
-    out.push({kind:"poly", pts:q, x0, x1, f:(x)=>interp(q,x)});
+    const q = xa<xb ? chunk : chunk.slice().reverse();
+    out.push({dir: xa<xb?1:-1, x0:q[0].x, x1:q[q.length-1].x,
+              kind:"poly", pts:q, f:(x)=>interp(q,x)});
   };
-  for(let i=1;i<p.length;i++){
-    const dx=p[i].x-cur[cur.length-1].x;
-    if(Math.abs(dx)<1e-9){ cur.push(p[i]); continue; }
-    const d=dx>0?1:-1;
-    if(dir===0){dir=d;cur.push(p[i]);}
-    else if(d===dir){cur.push(p[i]);}
-    else{ push(cur); cur=[cur[cur.length-1],p[i]]; dir=d; }
+  for(const seg of st.segs){
+    if(seg.t==="L"){
+      const {a,b}=seg;
+      if(Math.abs(b.x-a.x)<VERT_EPS){
+        out.push({dir:0, x:(a.x+b.x)/2, ya:a.y, yb:b.y});
+      }else{
+        const p=(b.y-a.y)/(b.x-a.x), q=a.y-p*a.x;
+        out.push({dir:b.x>a.x?1:-1, x0:Math.min(a.x,b.x), x1:Math.max(a.x,b.x),
+                  kind:"line", p, q, linear:true, f:(x)=>p*x+q});
+      }
+    }else if(seg.t==="A"){
+      const {cx,cy,r}=seg; const a0=seg.a0, a1=seg.a1;
+      const dt=a1>=a0?1:-1;
+      const cuts=[a0];
+      let k = dt>0 ? Math.ceil(a0/Math.PI) : Math.floor(a0/Math.PI);
+      while(dt>0 ? k*Math.PI<a1 : k*Math.PI>a1){
+        if(Math.abs(k*Math.PI-a0)>1e-6) cuts.push(k*Math.PI);
+        k+=dt;
+      }
+      cuts.push(a1);
+      for(let i=0;i+1<cuts.length;i++){
+        const t0=cuts[i], t1=cuts[i+1];
+        if(Math.abs(t1-t0)<1e-6) continue;
+        const s=Math.sin((t0+t1)/2)>=0?1:-1;
+        const xa=cx+r*Math.cos(t0), xb=cx+r*Math.cos(t1);
+        if(Math.abs(xb-xa)<1e-9) continue;
+        out.push({dir:xb>xa?1:-1, x0:Math.min(xa,xb), x1:Math.max(xa,xb),
+          kind:"arc", cx, cy, r, s,
+          f:(x)=>cy+s*Math.sqrt(Math.max(0,r*r-(x-cx)*(x-cx)))});
+      }
+    }else{
+      const p=seg.pts;
+      if(p.length<2) continue;
+      let chunk=[p[0]], sgn=0;
+      for(let i=1;i<p.length;i++){
+        const dx=p[i].x-chunk[chunk.length-1].x;
+        if(Math.abs(dx)<1e-9){ chunk.push(p[i]); continue; }
+        const s=dx>0?1:-1;
+        if(sgn===0){ sgn=s; chunk.push(p[i]); }
+        else if(s===sgn){ chunk.push(p[i]); }
+        else { pushPoly(chunk); chunk=[chunk[chunk.length-1],p[i]]; sgn=s; }
+      }
+      pushPoly(chunk);
+    }
   }
-  push(cur);
   return out;
 }
 function interp(q,x){
@@ -644,6 +659,183 @@ function interp(q,x){
   while(hi-lo>1){const m=(lo+hi)>>1; if(q[m].x<=x)lo=m;else hi=m;}
   const a=q[lo],b=q[hi],w=b.x-a.x;
   return w<EPS?a.y:a.y+(b.y-a.y)*(x-a.x)/w;
+}
+
+function finishArc(a){
+  a.pieces.sort((p,q)=>p.x0-q.x0);
+  a.pieceAt=(x)=>{
+    for(const p of a.pieces) if(x>=p.x0-1e-7&&x<=p.x1+1e-7) return p;
+    return x<a.pieces[0].x0 ? a.pieces[0] : a.pieces[a.pieces.length-1];
+  };
+  a.f=(x)=>{ const p=a.pieceAt(x); return p.f(clamp(x,p.x0,p.x1)); };
+  return a;
+}
+
+function buildOutline(st){
+  const pieces=strokePieces(st);
+  if(!pieces.length) return null;
+  const flat=strokePolys(st).flat();
+  const span=Math.max(...flat.map(p=>p.x))-Math.min(...flat.map(p=>p.x));
+  const closed = flat.length>2 && dist(flat[0],flat[flat.length-1]) < Math.max(0.35, 0.12*span);
+
+  const arcs=[], joints=[];
+  let cur=null, jt=null;
+  for(const pc of pieces){
+    if(pc.dir===0){
+      if(!jt) jt={x:pc.x, ya:pc.ya, yb:pc.yb}; else jt.yb=pc.yb;
+      continue;
+    }
+    if(cur && cur.dir===pc.dir && !jt){
+      cur.pieces.push(pc);
+      cur.x0=Math.min(cur.x0,pc.x0); cur.x1=Math.max(cur.x1,pc.x1);
+    }else{
+      if(cur){ arcs.push(cur); joints.push(jt); }
+      jt=null;
+      cur={dir:pc.dir, pieces:[pc], x0:pc.x0, x1:pc.x1};
+    }
+  }
+  if(cur){ arcs.push(cur); joints.push(jt); }
+  if(!arcs.length) return null;
+
+  // 閉じた輪郭は、最後の弧と最初の弧が同じ向きならつなぐ
+  if(closed && arcs.length>1 && arcs[arcs.length-1].dir===arcs[0].dir && !joints[joints.length-1]){
+    const last=arcs.pop(); joints.pop();
+    arcs[0].pieces=last.pieces.concat(arcs[0].pieces);
+    arcs[0].x0=Math.min(arcs[0].x0,last.x0);
+    arcs[0].x1=Math.max(arcs[0].x1,last.x1);
+  }
+  arcs.forEach(finishArc);
+  const o={arcs,joints,closed};
+  arcs.forEach((a,k)=>{a.o=o;a.k=k;});
+  return o;
+}
+
+function buildShape(strokes){
+  const outlines=[], arcs=[];
+  for(const st of strokes){
+    const o=buildOutline(st);
+    if(!o) continue;
+    outlines.push(o);
+    for(const a of o.arcs){ a.gid=arcs.length; arcs.push(a); }
+  }
+  const xs=arcs.flatMap(a=>[a.x0,a.x1]);
+  return {outlines, arcs, x0:xs.length?Math.min(...xs):NaN, x1:xs.length?Math.max(...xs):NaN};
+}
+
+/* 弧 a を向き d で進み切ったとき、次にどの弧へ移るか */
+function succArc(a, d){
+  const o=a.o, n=o.arcs.length;
+  const withFlow = (d===a.dir);
+  if(!o.closed){
+    if(withFlow && a.k===n-1) return null;
+    if(!withFlow && a.k===0) return null;
+  }
+  if(n===1 && !o.closed) return null;
+  const nk = withFlow ? (a.k+1)%n : (a.k-1+n)%n;
+  const joint = withFlow ? o.joints[a.k] : o.joints[(a.k-1+n)%n];
+  const nx = o.arcs[nk];
+  return {arc:nx, s: withFlow ? nx.dir : -nx.dir, joint, withFlow};
+}
+
+/* =================================================================
+   立体の生成：輪郭をたどって 1 本の線としてつなぐ
+   ================================================================= */
+function traceWire(A, B, a0, b0, d0, used, startX){
+  const pts=[], rows=[], spans={A:[],B:[]};
+  let a=a0, b=b0, d=d0;
+  let x = startX!==undefined ? startX : (d>0 ? a.x0 : a.x1);
+  const put=(t)=>{
+    const f=a.f(t), g=b.f(t);
+    const q=[t,(f+g)/2,(f-g)/2];
+    const last=pts[pts.length-1];
+    if(!last||Math.abs(last[0]-q[0])>1e-9||Math.abs(last[1]-q[1])>1e-9||Math.abs(last[2]-q[2])>1e-9) pts.push(q);
+  };
+  const emit=(xa,xb)=>{
+    const lo=Math.min(xa,xb), hi=Math.max(xa,xb);
+    spans.A.push([a.gid,lo,hi]); spans.B.push([b.gid,lo,hi]);
+    const cuts=new Set([lo,hi]);
+    for(const src of [a,b]) for(const p of src.pieces){
+      if(p.x0>lo+1e-7&&p.x0<hi-1e-7) cuts.add(p.x0);
+      if(p.x1>lo+1e-7&&p.x1<hi-1e-7) cuts.add(p.x1);
+    }
+    let xs=[...cuts].sort((u,v)=>u-v);
+    if(xb<xa) xs.reverse();
+    for(let k=0;k+1<xs.length;k++){
+      const s0=xs[k], s1=xs[k+1];
+      const mid=(s0+s1)/2;
+      const pa=a.pieceAt(mid), pb=b.pieceAt(mid);
+      const lin=pa.linear&&pb.linear;
+      const M=lin?2:64;
+      for(let q=0;q<M;q++){
+        const u=q/(M-1);
+        // 円弧は端で傾きが急なので、両端を細かくとる
+        const w=lin?u:(1-Math.cos(Math.PI*u))/2;
+        put(s0+(s1-s0)*w);
+      }
+      rows.push({s:Math.min(s0,s1), e:Math.max(s0,s1), a:pa, b:pb});
+    }
+  };
+  const jump=(joint, withFlow, which)=>{
+    if(!joint) return;
+    const y0 = withFlow ? joint.ya : joint.yb;
+    const y1 = withFlow ? joint.yb : joint.ya;
+    const other = which==="A" ? b : a;
+    const w = other.f(clamp(joint.x, other.x0, other.x1));
+    const mk=(u)=> which==="A" ? [joint.x,(u+w)/2,(u-w)/2] : [joint.x,(w+u)/2,(w-u)/2];
+    pts.push(mk(y0)); pts.push(mk(y1));
+    rows.push({vert:true, which, v:{x:joint.x, y0:Math.min(y0,y1), y1:Math.max(y0,y1)}});
+  };
+
+  const seen=new Set();
+  const cap=6*(A.arcs.length*B.arcs.length)+80;
+  for(let guard=0; guard<cap; guard++){
+    const key=`${a.gid}/${b.gid}/${d}/${round(x,5)}`;
+    if(seen.has(key)) break;
+    seen.add(key);
+    used.A.add(a.gid); used.B.add(b.gid);
+
+    const limA = d>0?a.x1:a.x0, limB = d>0?b.x1:b.x0;
+    const xe = d>0 ? Math.min(limA,limB) : Math.max(limA,limB);
+    if(Math.abs(xe-x)>1e-7) emit(x,xe); else if(!pts.length) put(x);
+
+    const hitA=Math.abs(xe-limA)<1e-7, hitB=Math.abs(xe-limB)<1e-7;
+    const sA=hitA?succArc(a,d):null, sB=hitB?succArc(b,d):null;
+    if((hitA&&!sA)||(hitB&&!sB)) break;          // 開いた図形の端
+    const d2 = ((sA&&sA.s===-d)||(sB&&sB.s===-d)) ? -d : d;
+    if(sA&&sA.s===d2){ jump(sA.joint,sA.withFlow,"A"); a=sA.arc; }
+    if(sB&&sB.s===d2){ jump(sB.joint,sB.withFlow,"B"); b=sB.arc; }
+    d=d2; x=xe;
+  }
+  return {pts,rows,spans};
+}
+
+/* 弧ごとに「まだ立体に使われていない x の区間」を探す */
+function addSpan(cov,gid,lo,hi){
+  const list=cov.get(gid)||[]; list.push([lo,hi]); cov.set(gid,list);
+}
+function findGap(shape, cov, lo, hi){
+  for(const a of shape.arcs){
+    const s=Math.max(a.x0,lo), e=Math.min(a.x1,hi);
+    if(e-s<2e-3) continue;
+    const iv=(cov.get(a.gid)||[]).map(v=>[Math.max(v[0],s),Math.min(v[1],e)])
+      .filter(v=>v[1]-v[0]>1e-9).sort((u,v)=>u[0]-v[0]);
+    let x=s;
+    for(const v of iv){
+      if(v[0]>x+2e-3) return {arc:a, x};
+      x=Math.max(x,v[1]);
+    }
+    if(e-x>2e-3) return {arc:a, x};
+  }
+  return null;
+}
+
+/* 弧 a の相方として、x=t での y がいちばん近い弧を選ぶ */
+function pickPartner(a, shape, t, shift){
+  const cand=shape.arcs.filter(c=>c.x0<=t+1e-6&&c.x1>=t-1e-6);
+  if(!cand.length) return null;
+  const y=a.f(clamp(t,a.x0,a.x1));
+  cand.sort((u,v)=>Math.abs(u.f(clamp(t,u.x0,u.x1))-y)-Math.abs(v.f(clamp(t,v.x0,v.x1))-y));
+  return cand[((shift%cand.length)+cand.length)%cand.length];
 }
 
 function xExtent(strokes){
@@ -665,98 +857,71 @@ function mapX(strokes, from, to){
   )}));
 }
 
-function shapeBranches(strokes){
-  const fs=[], vs=[];
-  for(const st of strokes) for(const seg of st.segs)
-    for(const br of branchesOfSeg(seg)) (br.vert?vs:fs).push(br);
-  return {fs, vs};
-}
-
-/* =================================================================
-   立体の生成
-   ================================================================= */
 const state={
   strokes:{A:[],B:[]},
   pairShift:0,
   az:-58, el:24, roll:0, zoom:1, stretch:1,
-  spin:false, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:false,
+  spin:false, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:true,
   view:0, tint:0    // view: 0=自由 1=視点① 2=視点②
 };
 let model=null;
 
 function buildModel(){
   let SA=state.strokes.A, SB=state.strokes.B;
-  if(state.fitx && SA.length && SB.length){
-    const ea=xExtent(SA), eb=xExtent(SB);
-    const w=Math.max(ea[1]-ea[0], eb[1]-eb[0]);
-    if(isFinite(w)&&w>1e-6){ const tgt=[-w/2,w/2]; SA=mapX(SA,ea,tgt); SB=mapX(SB,eb,tgt); }
-  }
-  const A=shapeBranches(SA), B=shapeBranches(SB);
   const warns=[], curves=[], rows=[];
-  if(!A.fs.length && !A.vs.length){ warns.push("図形Aが描かれていません。"); }
-  if(!B.fs.length && !B.vs.length){ warns.push("図形Bが描かれていません。"); }
 
-  if(A.fs.length && B.fs.length){
-    const ext=(bs)=>[Math.min(...bs.map(b=>b.x0)), Math.max(...bs.map(b=>b.x1))];
-    const [a0,a1]=ext(A.fs), [b0,b1]=ext(B.fs);
-    const lo=Math.max(a0,b0), hi=Math.min(a1,b1);
+  if(SA.length && SB.length){
+    const ea=xExtent(SA), eb=xExtent(SB);
+    const wa=ea[1]-ea[0], wb=eb[1]-eb[0];
+    if(isFinite(wa)&&isFinite(wb)&&wa>1e-6&&wb>1e-6){
+      if(state.fitx){
+        const w=Math.max(wa,wb), tgt=[-w/2,w/2];
+        if(Math.abs(wa-wb)>0.02) warns.push("2つの図形の横幅が違ったので、xの向きに伸縮してそろえました（「横幅をそろえる」を切ると元の幅のまま計算します）。");
+        SA=mapX(SA,ea,tgt); SB=mapX(SB,eb,tgt);
+      }else if(Math.abs(wa-wb)>0.02 || Math.abs(ea[0]-eb[0])>0.02){
+        warns.push("2つの図形の x の範囲が違います。「横幅をそろえる」を入れると立体が1本につながります。");
+      }
+    }
+  }
+
+  const A=buildShape(SA), B=buildShape(SB);
+  if(!A.arcs.length) warns.push("図形Aが描かれていません。");
+  if(!B.arcs.length) warns.push("図形Bが描かれていません。");
+
+  if(A.arcs.length && B.arcs.length){
+    const lo=Math.max(A.x0,B.x0), hi=Math.min(A.x1,B.x1);
     if(hi-lo<1e-6){
       warns.push("2つの図形の x の範囲が重なっていません。横に並べ直してください。");
     }else{
-      if(a0<lo-0.05||a1>hi+0.05||b0<lo-0.05||b1>hi+0.05)
-        warns.push(`x の範囲が違うため ${round(lo,2)} ≦ x ≦ ${round(hi,2)} の部分だけ計算しました。「横幅をそろえる」を入れると全体が作れます。`);
-
-      const cuts=new Set([lo,hi]);
-      for(const b of A.fs.concat(B.fs)){
-        if(b.x0>lo+1e-6&&b.x0<hi-1e-6) cuts.add(round(b.x0,6));
-        if(b.x1>lo+1e-6&&b.x1<hi-1e-6) cuts.add(round(b.x1,6));
+      const used={A:new Set(), B:new Set()};
+      const covA=new Map(), covB=new Map();
+      const runs=[];
+      const start=(a,b,d,x)=>{
+        const r=traceWire(A,B,a,b,d,used,x);
+        if(r.pts.length<2) return false;
+        runs.push(r);
+        for(const [g,s,e] of r.spans.A) addSpan(covA,g,s,e);
+        for(const [g,s,e] of r.spans.B) addSpan(covB,g,s,e);
+        return true;
+      };
+      // まず図形Aの左端からたどる。残った所は、覆えていない区間から改めてたどる。
+      const first=A.arcs[0];
+      const fb=pickPartner(first,B,clamp(first.x0,lo,hi),state.pairShift);
+      if(fb) start(first,fb,1,clamp(first.x0,lo,hi));
+      for(let guard=0; guard<10; guard++){
+        const g = findGap(A,covA,lo,hi) || findGap(B,covB,lo,hi);
+        if(!g) break;
+        const isA = A.arcs.indexOf(g.arc)>=0;
+        const x=clamp(g.x,lo,hi);
+        const mate = isA ? pickPartner(g.arc,B,x,state.pairShift) : pickPartner(g.arc,A,x,state.pairShift);
+        if(!mate) break;
+        if(!start(isA?g.arc:mate, isA?mate:g.arc, 1, x)) break;
       }
-      const xs=[...cuts].sort((p,q)=>p-q);
-      for(let i=0;i+1<xs.length;i++){
-        const s=xs[i], e=xs[i+1];
-        if(e-s<1e-4) continue;
-        const m=(s+e)/2;
-        const As=A.fs.filter(b=>b.x0<=m+1e-7&&b.x1>=m-1e-7).sort((u,v)=>u.f(m)-v.f(m));
-        const Bs=B.fs.filter(b=>b.x0<=m+1e-7&&b.x1>=m-1e-7).sort((u,v)=>u.f(m)-v.f(m));
-        if(!As.length||!Bs.length) continue;
-        const n=As.length, k=Bs.length, N=Math.max(n,k);
-        const seen=new Set();
-        for(let i2=0;i2<N;i2++){
-          const ai=(Math.floor(i2*n/N)+((state.pairShift%n)+n)%n)%n;
-          const bi=Math.floor(i2*k/N);
-          const key=ai+"/"+bi; if(seen.has(key)) continue; seen.add(key);
-          const a=As[ai], b=Bs[bi];
-          const lin=a.linear&&b.linear;
-          const M=lin?2:56;
-          const pts=[];
-          for(let j=0;j<M;j++){
-            const t=s+(e-s)*j/(M-1);
-            const f=a.f(t), g=b.f(t);
-            pts.push([t,(f+g)/2,(f-g)/2]);
-          }
-          curves.push(pts);
-          rows.push({s,e,a,b});
-        }
-      }
+      for(const r of runs){ curves.push(r.pts); for(const row of r.rows) rows.push(row); }
+      if(curves.length>2)
+        warns.push(`立体が ${curves.length} 本の線に分かれました。「対応を変える」を押すと組み合わせが変わることがあります。`);
     }
   }
-
-  // 縦線の処理：t 固定の線分になる
-  const addVert=(vs, others, which)=>{
-    for(const v of vs){
-      const cand=others.filter(b=>b.x0<=v.x+1e-6&&b.x1>=v.x-1e-6);
-      if(!cand.length){ continue; }
-      cand.sort((p,q)=>Math.abs(p.f(v.x)-(v.y0+v.y1)/2)-Math.abs(q.f(v.x)-(v.y0+v.y1)/2));
-      const o=cand[0], w=o.f(v.x);
-      const mk=(u)=> which==="A" ? [v.x,(u+w)/2,(u-w)/2] : [v.x,(w+u)/2,(w-u)/2];
-      curves.push([mk(v.y0), mk(v.y1)]);
-      rows.push({s:v.x,e:v.x,vert:true,which,v,o});
-    }
-  };
-  addVert(A.vs, B.fs, "A");
-  addVert(B.vs, A.fs, "B");
-  if(A.vs.length||B.vs.length)
-    warns.push("縦の線は「t が一定の線分」として立体に入れました（もう一方から見ると点になります）。");
 
   model={curves,rows,warns,SA,SB};
   return model;
