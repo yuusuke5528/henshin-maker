@@ -293,6 +293,13 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button id="v2">視点②（Bが見える）</button>
           <button id="v0">斜めから</button>
           <button id="spin">自動回転</button>
+          <select id="spinSpeed" title="自動回転の速さ">
+            <option value="0.45">とても遅い</option>
+            <option value="0.7" selected>遅い</option>
+            <option value="1.1">ふつう</option>
+            <option value="1.7">速い</option>
+            <option value="2.5">とても速い</option>
+          </select>
           <span style="flex:1"></span>
           <button id="pairShift" title="どの線とどの線を組にするかを変える">対応を変える</button>
           <label class="chk" title="線を少なくするか、1本につながることを優先するか"><input type="checkbox" id="optSimple" checked>線を少なく</label>
@@ -981,7 +988,7 @@ const state={
   strokes:{A:[],B:[]},
   pairShift:0,
   az:-58, el:24, roll:0, zoom:1, stretch:1,
-  spin:false, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:true, simple:true, flipB:true,
+  spin:false, spinSpeed:0.7, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:true, simple:true, flipB:true,
   view:0, tint:0    // view: 0=自由 1=視点① 2=視点②
 };
 let model=null;
@@ -2095,7 +2102,7 @@ function animateTo(az,el,roll,stretch,view){
 
 function loop(now){
   if(anim) anim(now);
-  if(state.spin && !anim){ state.az+=1.1; dirty=true; }
+  if(state.spin && !anim){ state.az+=state.spinSpeed; dirty=true; }
   if(dirty){ draw3D(); dirty=false; }
   requestAnimationFrame(loop);
 }
@@ -2171,6 +2178,7 @@ function bind(){
       animateTo(state.az, 45, 0, Math.SQRT2, 0);
     }
   };
+  document.getElementById("spinSpeed").onchange=e=>{ state.spinSpeed=parseFloat(e.target.value); };
   document.getElementById("pairShift").onclick=()=>{state.pairShift++;recompute();};
   document.getElementById("optSimple").onchange=e=>{state.simple=e.target.checked;recompute();};
 
