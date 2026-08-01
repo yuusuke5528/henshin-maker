@@ -1790,8 +1790,16 @@ function bind(){
   v2.onclick=()=>{setOn(v2);animateTo(90,45,state.flipB?0:180,Math.SQRT2,2);};
   v0.onclick=()=>{setOn(v0);animateTo(-58,24,0,1,0);};
   const spin=document.getElementById("spin");
-  spin.onclick=()=>{state.spin=!state.spin;spin.classList.toggle("on",state.spin);
-    if(state.spin){setOn(null);state.view=0;state.tint=0;state.stretch=1;state.roll=0;}};
+  spin.onclick=()=>{
+    state.spin=!state.spin;
+    spin.classList.toggle("on",state.spin);
+    if(state.spin){
+      setOn(null);
+      // 視点①と同じ高さ（45°）にそろえてから、横に回す。
+      // 回りながら視点①・視点②をちょうど通るので、AとBが順に現れる。
+      animateTo(state.az, 45, 0, Math.SQRT2, 0);
+    }
+  };
   document.getElementById("pairShift").onclick=()=>{state.pairShift++;recompute();};
   document.getElementById("optSimple").onchange=e=>{state.simple=e.target.checked;recompute();};
 
