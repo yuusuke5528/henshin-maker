@@ -239,6 +239,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           </label>
           <span class="sep"></span>
           <label class="chk" title="2つの図形の横幅が違うときに、xだけ伸縮してそろえます"><input type="checkbox" id="optFitX" checked>横幅をそろえる</label>
+          <label class="chk" title="視点②は反対側から見るので、そのままだと図形Bは180°回って見えます"><input type="checkbox" id="optFlipB" checked>図形Bを描いたとおりに見せる</label>
         </div>
       </section>
     </div>
@@ -271,7 +272,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
       <span class="m"><i>r</i>(<i>t</i>) = ( <i>t</i>,
       <span class="fr"><span><i>f</i>(<i>t</i>)+<i>g</i>(<i>t</i>)</span><span>2</span></span>,
       <span class="fr"><span><i>f</i>(<i>t</i>)−<i>g</i>(<i>t</i>)</span><span>2</span></span> )</span>
-      　<span style="color:var(--red)"><i>f</i></span> は図形A、<span style="color:var(--blue)"><i>g</i></span> は図形B。
+      　<span style="color:var(--red)"><i>f</i></span> は図形A、<span style="color:var(--blue)"><i>g</i></span> は図形B（180°回したもの）。
     </p>
     <div class="warns" id="warns"></div>
     <div id="eqs"></div>
@@ -881,6 +882,16 @@ function xExtent(strokes){
   }
   return [a,b];
 }
+/* 図形Bを180°回す。視点②は反対側から見るので、こうすると描いたとおりに見える */
+function rot180(strokes){
+  const T=p=>({x:-p.x, y:-p.y});
+  return strokes.map(st=>({segs:st.segs.map(seg=>{
+    if(seg.t==="L") return {t:"L", a:T(seg.a), b:T(seg.b)};
+    if(seg.t==="A") return {t:"A", cx:-seg.cx, cy:-seg.cy, r:seg.r,
+                            a0:seg.a0+Math.PI, a1:seg.a1+Math.PI};
+    return {t:"F", pts:seg.pts.map(T)};
+  })}));
+}
 /* 横幅をそろえる：x だけ線形に伸縮（円弧は折れ線に落とす） */
 function mapX(strokes, from, to){
   const [a0,a1]=from, [b0,b1]=to;
@@ -897,13 +908,14 @@ const state={
   strokes:{A:[],B:[]},
   pairShift:0,
   az:-58, el:24, roll:0, zoom:1, stretch:1,
-  spin:false, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:true, simple:true,
+  spin:false, axes:true, snapShape:true, penOnly:false, grid:0.5, fitx:true, simple:true, flipB:true,
   view:0, tint:0    // view: 0=自由 1=視点① 2=視点②
 };
 let model=null;
 
 function buildOnce(shift, simple){
   let SA=state.strokes.A, SB=state.strokes.B;
+  if(state.flipB && SB.length) SB=rot180(SB);
   const warns=[], curves=[], rows=[];
   let gaps=0;
 
@@ -1505,14 +1517,8 @@ const PRESETS={
   tri:()=>polyStroke([[0,4],[-4,-4],[4,-4]]),
   cross:()=>polyStroke([[0,1],[3,4],[4,3],[1,0],[4,-3],[3,-4],[0,-1],[-3,-4],[-4,-3],[-1,0],[-4,3],[-3,4]]),
   circle:()=>({segs:[{t:"A",cx:0,cy:0,r:4,a0:0,a1:2*Math.PI}]}),
-  star:()=>{
-    const V=[];
-    for(let i=0;i<10;i++){
-      const r=i%2?1.7:4, th=(-90+i*36)*Math.PI/180;
-      V.push([round(r*Math.cos(th),3), round(r*Math.sin(th),3)]);
-    }
-    return polyStroke(V);
-  },
+  // ばつの折れ点（0,±1,±3,±4）に合わせた星。先端が上向き
+  star:()=>polyStroke([[0,4],[-1,1],[-4,1],[-1,-1],[-4,-4],[0,-2.5],[4,-4],[1,-1],[4,1],[1,1]]),
   heart:()=>{
     const P=[];
     for(let i=0;i<=80;i++){
@@ -1771,12 +1777,17 @@ function bind(){
   document.getElementById("optPen").onchange=e=>state.penOnly=e.target.checked;
   document.getElementById("optGrid").onchange=e=>state.grid=parseFloat(e.target.value);
   document.getElementById("optFitX").onchange=e=>{state.fitx=e.target.checked;recompute();};
+  document.getElementById("optFlipB").onchange=e=>{
+    state.flipB=e.target.checked;
+    if(state.view===2){ state.roll=state.flipB?0:180; }
+    recompute();
+  };
   document.getElementById("optAxes").onchange=e=>{state.axes=e.target.checked;markDirty();};
 
   const v1=document.getElementById("v1"), v2=document.getElementById("v2"), v0=document.getElementById("v0");
   const setOn=(el)=>{[v0,v1,v2].forEach(b=>b.classList.toggle("on",b===el));};
   v1.onclick=()=>{setOn(v1);animateTo(-90,45,0,Math.SQRT2,1);};
-  v2.onclick=()=>{setOn(v2);animateTo(90,45,180,Math.SQRT2,2);};
+  v2.onclick=()=>{setOn(v2);animateTo(90,45,state.flipB?0:180,Math.SQRT2,2);};
   v0.onclick=()=>{setOn(v0);animateTo(-58,24,0,1,0);};
   const spin=document.getElementById("spin");
   spin.onclick=()=>{state.spin=!state.spin;spin.classList.toggle("on",state.spin);
