@@ -163,7 +163,9 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
     </div>
     <p>2つの図形を描くと、一方から見るとA・もう一方から見るとBに見える立体の媒介変数表示を計算します。指を離さずに止めると図形が整形されます。</p>
     <div class="row">
-      <button id="btnPreset">例（三角形＋ばつ）</button>
+      <button id="ex1" title="図形A＝三角形、図形B＝ダイヤ">例★1</button>
+      <button id="ex2" title="図形A＝左矢印、図形B＝左矢印">例★2</button>
+      <button id="ex3" title="図形A＝下矢印、図形B＝下矢印">例★3</button>
       <button id="btnClear">両方消す</button>
       <button id="btnQR">QRで他の端末へ</button>
     </div>
@@ -201,7 +203,14 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button class="chip" data-load="A" data-shape="cross">ばつ</button>
           <button class="chip" data-load="A" data-shape="circle">円</button>
           <button class="chip" data-load="A" data-shape="star">星</button>
+          <button class="chip" data-load="A" data-shape="pent">五角</button>
+          <button class="chip" data-load="A" data-shape="hex">六角</button>
+          <button class="chip" data-load="A" data-shape="diamond">ダイヤ</button>
           <button class="chip" data-load="A" data-shape="heart">ハート</button>
+          <button class="chip" data-load="A" data-shape="arrowU" title="上向きの矢印">矢印↑</button>
+          <button class="chip" data-load="A" data-shape="arrowD" title="下向きの矢印">矢印↓</button>
+          <button class="chip" data-load="A" data-shape="arrowL" title="左向きの矢印">矢印←</button>
+          <button class="chip" data-load="A" data-shape="arrowR" title="右向きの矢印">矢印→</button>
         </div>
       </section>
 
@@ -220,7 +229,34 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button class="chip" data-load="B" data-shape="cross">ばつ</button>
           <button class="chip" data-load="B" data-shape="circle">円</button>
           <button class="chip" data-load="B" data-shape="star">星</button>
+          <button class="chip" data-load="B" data-shape="pent">五角</button>
+          <button class="chip" data-load="B" data-shape="hex">六角</button>
+          <button class="chip" data-load="B" data-shape="diamond">ダイヤ</button>
           <button class="chip" data-load="B" data-shape="heart">ハート</button>
+          <button class="chip" data-load="B" data-shape="arrowU" title="上向きの矢印">矢印↑</button>
+          <button class="chip" data-load="B" data-shape="arrowD" title="下向きの矢印">矢印↓</button>
+          <button class="chip" data-load="B" data-shape="arrowL" title="左向きの矢印">矢印←</button>
+          <button class="chip" data-load="B" data-shape="arrowR" title="右向きの矢印">矢印→</button>
+        </div>
+      </section>
+
+      <section class="board">
+        <div class="board__hd"><b>式で入力</b>
+          <span class="note" id="texMsg"></span></div>
+        <div style="padding:9px 10px 11px">
+          <div class="row" style="margin-bottom:7px">
+            <button class="chip on" id="texA">図形Aへ</button>
+            <button class="chip" id="texB">図形Bへ</button>
+            <span style="flex:1"></span>
+            <button class="chip" id="texApply">この図形にする</button>
+            <button class="chip" id="texAdd">付け足す</button>
+          </div>
+          <textarea id="texIn" spellcheck="false" style="min-height:104px;margin-top:0"
+            placeholder="1行に1つ。&#10;y = 2x+4 \quad (-4 \le x \le 0)&#10;y = -2x+4 (0 \le x \le 4)&#10;y = -4 (-4 \le x \le 4)"></textarea>
+          <p class="hint" style="margin-top:6px">
+            \frac \sqrt ^ \pi \sin \cos \log などが使えます。<br>
+            x = 2 (-1 \le y \le 3) と書けば縦線も引けます。
+          </p>
         </div>
       </section>
 
@@ -475,6 +511,30 @@ function polyRms(R,V,closed){
   return Math.sqrt(sq/R.length);
 }
 
+/* 正多角形に見えるか。見えるなら中心と半径を返す（星・ばつ・長方形はここで外れる） */
+function regularCheck(V){
+  const n=V.length;
+  if(n<3||n>10) return null;
+  const sides=[], angs=[];
+  for(let i=0;i<n;i++){
+    const a=V[i], b=V[(i+1)%n], c=V[(i+2)%n];
+    sides.push(dist(a,b));
+    const v1={x:a.x-b.x,y:a.y-b.y}, v2={x:c.x-b.x,y:c.y-b.y};
+    angs.push(Math.acos(clamp((v1.x*v2.x+v1.y*v2.y)/(Math.hypot(v1.x,v1.y)*Math.hypot(v2.x,v2.y)||1),-1,1)));
+  }
+  const ms=sides.reduce((a,b)=>a+b,0)/n;
+  const ma=angs.reduce((a,b)=>a+b,0)/n;
+  let gx=0,gy=0; for(const q of V){gx+=q.x;gy+=q.y;} gx/=n; gy/=n;
+  const rad=V.map(q=>Math.hypot(q.x-gx,q.y-gy));
+  const rm=rad.reduce((a,b)=>a+b,0)/n;
+  if(rm<1e-6) return null;
+  // 辺の長さは厳しめに見る（長方形を正方形にしてしまわないため）
+  const ok = sides.every(s=>Math.abs(s-ms)<0.18*ms)
+          && angs.every(a=>Math.abs(a-ma)<0.40)
+          && rad.every(r=>Math.abs(r-rm)<0.22*rm);
+  return ok ? {gx,gy,rm} : null;
+}
+
 /* 近すぎる頂点と、ほぼ一直線上の頂点を落とす */
 function cleanCorners(V,L){
   let out=V.filter((p,i)=>i===0||dist(p,V[i-1])>0.02*L);
@@ -503,17 +563,29 @@ function beautify(raw, grid){
   const closed = dist(R[0],R[R.length-1]) < Math.max(0.16*L, 0.5);
 
   // 角の抽出
-  let corners;
-  if(closed){
+  const cornersAt=(eps)=>{
     // 重心から最も遠い点を先頭に回す
     let cx=0,cy=0; for(const q of R){cx+=q.x;cy+=q.y;} cx/=R.length; cy/=R.length;
     let bi=0,bd=-1;
     for(let i=0;i<R.length;i++){const d=Math.hypot(R[i].x-cx,R[i].y-cy); if(d>bd){bd=d;bi=i;}}
     const rot=R.slice(bi).concat(R.slice(0,bi));
     rot.push({...rot[0]});
-    corners=rdp(rot, 0.018*L);
-    corners.pop();
-    corners=cleanCorners(corners, L);
+    const C=rdp(rot, eps*L);
+    C.pop();
+    return cleanCorners(C, L);
+  };
+  let corners, regInfo=null;
+  if(closed){
+    corners=cornersAt(0.018);
+    regInfo=regularCheck(corners);
+    if(!regInfo){
+      // 少しずつ粗く見て、正多角形に見えるところがあればそれを採る
+      for(const e of [0.026,0.036,0.05]){
+        const C=cornersAt(e);
+        const g=C.length>=3 ? regularCheck(C) : null;
+        if(g){ corners=C; regInfo=g; break; }
+      }
+    }
   }else{
     corners=rdp(R, 0.02*L);
   }
@@ -535,8 +607,10 @@ function beautify(raw, grid){
   const pr = polyRms(R, corners, closed);
 
   // 円：折れ線で近似するより円で近似したほうが合っているとき
+  // すでに正多角形（7角形以下）に見えているときは、よほど円らしくないと円にしない
+  const circleBias = (regInfo && corners.length<=7) ? 0.6 : 1.25;
   if(closed && roundish && corners.length>=3 &&
-     (cf.rms < 0.03*cf.r || cf.rms < 1.25*pr)){
+     (cf.rms < 0.03*cf.r || cf.rms < circleBias*pr)){
     const c=snapPt({x:cf.cx,y:cf.cy},grid);
     const r=Math.max(grid>0?grid:0.1, snapVal(cf.r,grid));
     return [{t:"A",cx:c.x,cy:c.y,r:r,a0:0,a1:2*Math.PI}];
@@ -561,7 +635,8 @@ function beautify(raw, grid){
     }
   }
   // 角の数のわりに折れている所が少なければ、多角形にせず なめらかな曲線にする（楕円など）
-  if(closed && corners.length>=5 && sharpCount(corners)<=2){
+  // ただし正多角形に見えるものは、角がゆるくても多角形のまま残す
+  if(closed && !regInfo && corners.length>=5 && sharpCount(corners)<=2){
     corners=[];
   }
 
@@ -577,29 +652,26 @@ function beautify(raw, grid){
 
   if(closed && corners.length>=3 && corners.length<=16){
     let V=corners.map(p=>({...p}));
-    // 正多角形っぽさの判定
-    const n=V.length, sides=[], angs=[];
-    for(let i=0;i<n;i++){
-      const a=V[i], b=V[(i+1)%n], c=V[(i+2)%n];
-      sides.push(dist(a,b));
-      const v1={x:a.x-b.x,y:a.y-b.y}, v2={x:c.x-b.x,y:c.y-b.y};
-      angs.push(Math.acos(clamp((v1.x*v2.x+v1.y*v2.y)/(Math.hypot(v1.x,v1.y)*Math.hypot(v2.x,v2.y)||1),-1,1)));
-    }
-    const ms=sides.reduce((a,b)=>a+b,0)/n;
-    const ma=angs.reduce((a,b)=>a+b,0)/n;
-    const regS=sides.every(s=>Math.abs(s-ms)<0.22*ms);
-    const regA=angs.every(a=>Math.abs(a-ma)<0.22);
-    if(regS&&regA&&n<=8){
-      let cx=0,cy=0; for(const q of V){cx+=q.x;cy+=q.y;} cx/=n;cy/=n;
-      let r=0; for(const q of V) r+=Math.hypot(q.x-cx,q.y-cy); r/=n;
-      const th0=Math.atan2(V[0].y-cy,V[0].x-cx);
+    const n=V.length;
+    const reg=regInfo||regularCheck(V);
+    let regular=false;
+    if(reg){
+      const {gx,gy,rm}=reg;
+      const th0=Math.atan2(V[0].y-gy,V[0].x-gx);
       const sgn=((V[1].x-V[0].x)*(V[2].y-V[0].y)-(V[1].y-V[0].y)*(V[2].x-V[0].x))>0?1:-1;
-      V=[]; for(let i=0;i<n;i++){
-        const th=th0+sgn*2*Math.PI*i/n;
-        V.push({x:cx+r*Math.cos(th), y:cy+r*Math.sin(th)});
+      // 中心と半径は格子に、傾きは15°刻みにそろえる
+      const c=snapPt({x:gx,y:gy},grid);
+      const rr=Math.max(grid>0?grid:0.1, snapVal(rm,grid));
+      const t0=Math.round(th0*180/Math.PI/15)*15*Math.PI/180;
+      V=[];
+      for(let i=0;i<n;i++){
+        const th=t0+sgn*2*Math.PI*i/n;
+        V.push({x:round(c.x+rr*Math.cos(th),4), y:round(c.y+rr*Math.sin(th),4)});
       }
+      regular=true;
     }
-    V=V.map(p=>snapPt(p,grid));
+    // 正多角形にした場合は、格子に吸着させると崩れるのでそのまま使う
+    if(!regular) V=V.map(p=>snapPt(p,grid));
     const segs=[];
     for(let i=0;i<V.length;i++){
       const a=V[i], b=V[(i+1)%V.length];
@@ -1069,14 +1141,6 @@ function buildMinimal(A,B,lo,hi,shift){
     partner.set(a.gid,b);
     push(a,b,Math.max(s,b.x0),Math.min(e,b.x1));
   }
-  // 図形Aの縦線
-  for(const o of A.outlines) o.arcs.forEach((a,k)=>{
-    const jt=o.joints[k]; if(!jt) return;
-    const b=partner.get(a.gid); if(!b) return;
-    const w=b.f(clamp(jt.x,b.x0,b.x1));
-    curves.push([[jt.x,(jt.ya+w)/2,(jt.ya-w)/2],[jt.x,(jt.yb+w)/2,(jt.yb-w)/2]]);
-    rows.push({vert:true, which:"A", v:{x:jt.x, y0:Math.min(jt.ya,jt.yb), y1:Math.max(jt.ya,jt.yb)}});
-  });
   // 使われていない所を、A側・B側の両方について埋める
   for(let guard=0; guard<60; guard++){
     let isA=true, g=findGap(A,covA,lo,hi);
@@ -1092,14 +1156,56 @@ function buildMinimal(A,B,lo,hi,shift){
     if(x1-g.x<1e-6) break;
     push(isA?g.arc:m, isA?m:g.arc, g.x, x1);
   }
-  // 図形Bの縦線
+  /* 縦の辺。
+     同じ x に A と B の両方の縦の辺があれば、それどうしを組ませる。
+     f と g を逆向きに動かせば (f+g)/2 が変わらず、真上から見ると点になる。 */
+  const vertsA=[], vertsB=[];
+  for(const o of A.outlines) o.arcs.forEach((a,k)=>{
+    const jt=o.joints[k]; if(jt) vertsA.push({x:jt.x, y0:jt.ya, y1:jt.yb, arc:a});
+  });
   for(const o of B.outlines) o.arcs.forEach((b,k)=>{
-    const jt=o.joints[k]; if(!jt) return;
-    const cand=A.arcs.filter(c=>c.x0<=jt.x+1e-6&&c.x1>=jt.x-1e-6);
+    const jt=o.joints[k]; if(jt) vertsB.push({x:jt.x, y0:jt.ya, y1:jt.yb, arc:b});
+  });
+  const usedB=new Set();
+  const addVert=(pts,which,x,y0,y1)=>{
+    curves.push(pts);
+    rows.push({vert:true, which, v:{x, y0:Math.min(y0,y1), y1:Math.max(y0,y1)}});
+  };
+  for(const va of vertsA){
+    // 同じ x にある B の縦の辺のうち、高さが近いものを選ぶ
+    let j=-1, best=Infinity;
+    const ma=(va.y0+va.y1)/2;
+    vertsB.forEach((vb,i)=>{
+      if(usedB.has(i)||Math.abs(vb.x-va.x)>1e-6) return;
+      const d=Math.abs((vb.y0+vb.y1)/2-ma);
+      if(d<best){best=d;j=i;}
+    });
+    if(j>=0){
+      usedB.add(j);
+      const vb=vertsB[j];
+      const df=va.y1-va.y0, dg=vb.y1-vb.y0;
+      // 真上から見た広がりが小さくなる向きを選ぶ
+      const [g0,g1] = Math.abs(df-dg)<Math.abs(df+dg) ? [vb.y1,vb.y0] : [vb.y0,vb.y1];
+      const P=(f,g)=>[va.x,(f+g)/2,(f-g)/2];
+      addVert([P(va.y0,g0),P(va.y1,g1)],"AB",va.x,va.y0,va.y1);
+      continue;
+    }
+    let w=null;
+    const b=partner.get(va.arc.gid);
+    if(b) w=b.f(clamp(va.x,b.x0,b.x1));
+    else{
+      const cand=B.arcs.filter(c=>c.x0<=va.x+1e-6&&c.x1>=va.x-1e-6);
+      if(cand.length) w=cand[0].f(clamp(va.x,cand[0].x0,cand[0].x1));
+    }
+    if(w===null) continue;
+    addVert([[va.x,(va.y0+w)/2,(va.y0-w)/2],[va.x,(va.y1+w)/2,(va.y1-w)/2]],"A",va.x,va.y0,va.y1);
+  }
+  vertsB.forEach((vb,i)=>{
+    if(usedB.has(i)) return;
+    const cand=A.arcs.filter(c=>c.x0<=vb.x+1e-6&&c.x1>=vb.x-1e-6);
     if(!cand.length) return;
-    const w=cand[0].f(clamp(jt.x,cand[0].x0,cand[0].x1));
-    curves.push([[jt.x,(w+jt.ya)/2,(w-jt.ya)/2],[jt.x,(w+jt.yb)/2,(w-jt.yb)/2]]);
-    rows.push({vert:true, which:"B", v:{x:jt.x, y0:Math.min(jt.ya,jt.yb), y1:Math.max(jt.ya,jt.yb)}});
+    const w=cand[0].f(clamp(vb.x,cand[0].x0,cand[0].x1));
+    addVert([[vb.x,(w+vb.y0)/2,(w-vb.y0)/2],[vb.x,(w+vb.y1)/2,(w-vb.y1)/2]],"B",vb.x,vb.y0,vb.y1);
   });
   const rest=(findGap(A,covA,lo,hi)?1:0)+(findGap(B,covB,lo,hi)?1:0);
   return {curves:chainPieces(curves), rows, gaps:rest};
@@ -1422,7 +1528,8 @@ function branchHtml(br,which){
 function pairHtml(row){
   if(row.vert){
     const w=row.which;
-    return `<span class="m">${w==="A"?"図形A":"図形B"}の縦線 <i>x</i> = ${numHtml(row.v.x)}（${numHtml(row.v.y0)} ≦ <i>y</i> ≦ ${numHtml(row.v.y1)}）→ 立体では <i>t</i> = ${numHtml(row.v.x)} の線分</span>`;
+    const nm = w==="AB" ? "図形Aと図形Bの縦線どうし" : (w==="A"?"図形Aの縦線":"図形Bの縦線");
+    return `<span class="m">${nm} <i>x</i> = ${numHtml(row.v.x)}（${numHtml(row.v.y0)} ≦ <i>y</i> ≦ ${numHtml(row.v.y1)}）→ 立体では <i>t</i> = ${numHtml(row.v.x)} の線分</span>`;
   }
   const {a,b}=row;
   if(a.kind==="line"&&b.kind==="line"){
@@ -1455,7 +1562,7 @@ function texOut(){
   const L=["% 変身立体メーカー で生成"];
   for(const row of (model?.rows||[])){
     if(row.vert){
-      L.push(`% ${row.which==="A"?"図形A":"図形B"}の縦線 x=${round(row.v.x,4)} → t 一定の線分`);
+      L.push(`% ${row.which==="AB"?"図形Aと図形Bの縦線どうし":(row.which==="A"?"図形A":"図形B")+"の縦線"} x=${round(row.v.x,4)} → t 一定の線分`);
       continue;
     }
     const {a,b,s,e}=row;
@@ -1505,6 +1612,229 @@ function download(name,text,mime){
 /* =================================================================
    プリセット
    ================================================================= */
+/* =================================================================
+   LaTeX で書いた式を図形にする
+   例)  y = 2x+4 \quad (-4 \le x \le 0)
+        y = \frac{1}{2}x - 1, -4 \le x \le 4
+        y = \sqrt{16-x^2} (-4 \le x \le 4)
+        x = 2 (-1 \le y \le 3)      ← 縦線
+   ================================================================= */
+const TEX_FUNCS=["sqrt","sin","cos","tan","asin","acos","atan","sinh","cosh","tanh","log","ln","abs","exp"];
+
+function texPrep(s){
+  return s.replace(/\\left|\\right|\\!|\\,|\\;|\\:|\\quad|\\qquad|\\displaystyle/g," ")
+          .replace(/\\cdot|\\times/g,"*")
+          .replace(/\\dfrac|\\tfrac/g,"\\frac")
+          .replace(/[（]/g,"(").replace(/[）]/g,")")
+          .replace(/\s+/g," ").trim();
+}
+function texLex(s){
+  const t=[]; let i=0;
+  while(i<s.length){
+    const c=s[i];
+    if(c===" "){ i++; continue; }
+    if(/[0-9.]/.test(c)){
+      let j=i; while(j<s.length&&/[0-9.]/.test(s[j])) j++;
+      t.push({k:"num", v:parseFloat(s.slice(i,j))}); i=j; continue;
+    }
+    if(c==="\\"){
+      let j=i+1; while(j<s.length&&/[a-zA-Z]/.test(s[j])) j++;
+      t.push({k:"cmd", v:s.slice(i+1,j)}); i=j; continue;
+    }
+    if(/[a-zA-Z]/.test(c)){
+      let j=i; while(j<s.length&&/[a-zA-Z]/.test(s[j])) j++;
+      const w=s.slice(i,j);
+      if(TEX_FUNCS.includes(w)) t.push({k:"cmd", v:w});
+      else for(const ch of w) t.push({k:"id", v:ch});
+      i=j; continue;
+    }
+    if("+-*/^(){}[]".includes(c)){ t.push({k:c}); i++; continue; }
+    throw new Error("読めない文字「"+c+"」");
+  }
+  return t;
+}
+function texParse(tk){
+  let p=0;
+  const peek=()=>tk[p];
+  const eat=(k)=>(tk[p]&&tk[p].k===k)?tk[p++]:null;
+  const need=(k)=>{ if(!eat(k)) throw new Error("「"+k+"」が足りません"); };
+  const starts=()=>{
+    const t=peek();
+    return !!t && (t.k==="num"||t.k==="id"||t.k==="cmd"||t.k==="("||t.k==="{");
+  };
+  function group(){
+    if(eat("{")){ const e=expr(); need("}"); return e; }
+    if(eat("(")){ const e=expr(); need(")"); return e; }
+    return primary();
+  }
+  function primary(){
+    const t=peek();
+    if(!t) throw new Error("式が途中で終わっています");
+    if(t.k==="num"){ p++; return {n:"num", v:t.v}; }
+    if(t.k==="id"){
+      p++;
+      if(t.v==="x") return {n:"x"};
+      if(t.v==="e") return {n:"num", v:Math.E};
+      throw new Error("使えない文字「"+t.v+"」");
+    }
+    if(t.k==="cmd"){
+      p++;
+      if(t.v==="frac"){ const a=group(), b=group(); return {n:"bin", o:"/", a, b}; }
+      if(t.v==="pi") return {n:"num", v:Math.PI};
+      if(TEX_FUNCS.includes(t.v)) return {n:"call", f:t.v, a:group()};
+      throw new Error("使えない命令「\\"+t.v+"」");
+    }
+    if(t.k==="("){ p++; const e=expr(); need(")"); return e; }
+    if(t.k==="{"){ p++; const e=expr(); need("}"); return e; }
+    throw new Error("読めない記号");
+  }
+  function power(){
+    let a=primary();
+    if(eat("^")) a={n:"bin", o:"^", a, b:power()};
+    return a;
+  }
+  function unary(){
+    if(eat("-")) return {n:"neg", a:unary()};
+    if(eat("+")) return unary();
+    return power();
+  }
+  function term(){
+    let a=unary();
+    for(;;){
+      if(eat("*")) { a={n:"bin", o:"*", a, b:unary()}; continue; }
+      if(eat("/")) { a={n:"bin", o:"/", a, b:unary()}; continue; }
+      if(starts())  { a={n:"bin", o:"*", a, b:unary()}; continue; }   // 2x のような省略
+      break;
+    }
+    return a;
+  }
+  function expr(){
+    let a=term();
+    for(;;){
+      if(eat("+")) { a={n:"bin", o:"+", a, b:term()}; continue; }
+      if(eat("-")) { a={n:"bin", o:"-", a, b:term()}; continue; }
+      break;
+    }
+    return a;
+  }
+  const e=expr();
+  if(p<tk.length) throw new Error("余分な記号があります");
+  return e;
+}
+function texEval(n,x){
+  switch(n.n){
+    case "num": return n.v;
+    case "x":   return x;
+    case "neg": return -texEval(n.a,x);
+    case "bin": {
+      const a=texEval(n.a,x), b=texEval(n.b,x);
+      return n.o==="+"?a+b : n.o==="-"?a-b : n.o==="*"?a*b : n.o==="/"?a/b : Math.pow(a,b);
+    }
+    case "call": {
+      const a=texEval(n.a,x);
+      switch(n.f){
+        case "sqrt":return Math.sqrt(a); case "abs":return Math.abs(a); case "exp":return Math.exp(a);
+        case "sin":return Math.sin(a);   case "cos":return Math.cos(a);  case "tan":return Math.tan(a);
+        case "asin":return Math.asin(a); case "acos":return Math.acos(a);case "atan":return Math.atan(a);
+        case "sinh":return Math.sinh(a); case "cosh":return Math.cosh(a);case "tanh":return Math.tanh(a);
+        case "ln":return Math.log(a);    case "log":return Math.log(a)/Math.LN10;
+      }
+      throw new Error("未知の関数");
+    }
+  }
+  throw new Error("式を読めません");
+}
+const texFn=(s)=>{ const a=texParse(texLex(texPrep(s))); return (x)=>texEval(a,x); };
+const texNum=(s)=>texFn(s)(0);
+
+/* 1行を「式の部分」と「定義域の部分」に分ける */
+function texSplitDomain(line){
+  const s=line.trim();
+  const ineq=/(<|>|≦|≧|≤|≥|\\le|\\ge)/;
+  let m=s.match(/^(.*)\(([^()]*)\)\s*$/);
+  if(m && ineq.test(m[2])) return {body:m[1].trim(), dom:m[2].trim()};
+  const i=Math.max(s.lastIndexOf(","), s.lastIndexOf("，"));
+  if(i>0 && ineq.test(s.slice(i+1))) return {body:s.slice(0,i).trim(), dom:s.slice(i+1).trim()};
+  return {body:s, dom:null};
+}
+/* 「-4 \le x \le 0」を [lo,hi] に */
+function texRange(dom, v, lo0, hi0){
+  if(!dom) return [lo0,hi0];
+  let s=dom.replace(/\\leqq|\\leq|\\le|≦|≤|<=/g,"<")
+           .replace(/\\geqq|\\geq|\\ge|≧|≥|>=/g,">");
+  if(s.includes(">")){                       // 向きをそろえる
+    s=s.split(">").reverse().join("<");
+  }
+  const parts=s.split("<").map(t=>t.trim()).filter(t=>t.length);
+  const isVar=(t)=>t.replace(/\s/g,"")===v;
+  if(parts.length===3 && isVar(parts[1])) return [texNum(parts[0]), texNum(parts[2])];
+  if(parts.length===2 && isVar(parts[0]))  return [lo0, texNum(parts[1])];
+  if(parts.length===2 && isVar(parts[1]))  return [texNum(parts[0]), hi0];
+  throw new Error("定義域を読めません");
+}
+/* 関数を折れ線／線分に */
+function texPlot(fn, a, b, N){
+  N=N||400;
+  const runs=[]; let run=[];
+  for(let i=0;i<=N;i++){
+    const x=a+(b-a)*i/N, y=fn(x);
+    if(!isFinite(y)||Math.abs(y)>1e4){ if(run.length>1) runs.push(run); run=[]; continue; }
+    run.push({x,y});                       // 判定のため丸めない
+  }
+  if(run.length>1) runs.push(run);
+  const out=[];
+  for(const pts of runs){
+    const p0=pts[0], p1=pts[pts.length-1], w=p1.x-p0.x;
+    let dev=0;
+    for(const q of pts){
+      const t=Math.abs(w)<1e-12?0:(q.x-p0.x)/w;
+      dev=Math.max(dev, Math.abs(q.y-(p0.y+(p1.y-p0.y)*t)));
+    }
+    const rd=(p)=>({x:round(p.x,6), y:round(p.y,6)});
+    if(dev<1e-7){                          // 直線は線分ひとつにする
+      out.push({t:"L", a:rd(p0), b:rd(p1)});
+    }else{                                 // 曲線は形を保ったまま点を減らす
+      let q=rdp(pts, 0.004);
+      if(q.length<2) q=pts;
+      out.push({t:"F", pts:q.map(rd)});
+    }
+  }
+  return out;
+}
+/* 入力欄ぜんぶを図形に変換 */
+function texToStrokes(text){
+  const out=[], errs=[];
+  const lines=text.split(/\r?\n/);
+  lines.forEach((raw,idx)=>{
+    const line=raw.trim();
+    if(!line || line.startsWith("%")) return;
+    try{
+      const {body,dom}=texSplitDomain(line);
+      let rhs=body.replace(/^\s*[yf]\s*(\(\s*x\s*\))?\s*=\s*/i,"");
+      const vert=/^\s*x\s*=/.test(body);
+      if(vert){
+        const c=texNum(body.replace(/^\s*x\s*=\s*/,""));
+        const [lo,hi]=texRange(dom,"y",YMIN,YMAX);
+        if(!(hi>lo)) throw new Error("縦線の範囲が逆です");
+        out.push({segs:[{t:"L", a:{x:c,y:lo}, b:{x:c,y:hi}}]});
+        return;
+      }
+      const [lo,hi]=texRange(dom,"x",XMIN,XMAX);
+      if(!(hi>lo)) throw new Error("定義域が逆です");
+      const fn=texFn(rhs);
+      const segs=texPlot(fn, lo, hi);
+      if(!segs.length) throw new Error("その範囲で値が出ません");
+      out.push({segs});
+    }catch(e){
+      errs.push((idx+1)+"行目: "+e.message);
+    }
+  });
+  return {strokes:out, errs};
+}
+
+/* 右向きの矢印（先端(4,0)・矢じりの幅±3・棒の幅±1・棒は x=-4〜0） */
+const ARROW_BASE=[[4,0],[0,3],[0,1],[-4,1],[-4,-1],[0,-1],[0,-3]];
+
 function polyStroke(V){
   const segs=[];
   for(let i=0;i<V.length;i++){
@@ -1519,6 +1849,20 @@ const PRESETS={
   circle:()=>({segs:[{t:"A",cx:0,cy:0,r:4,a0:0,a1:2*Math.PI}]}),
   // ばつの折れ点（0,±1,±3,±4）に合わせた星。先端が上向き
   star:()=>polyStroke([[0,4],[-1,1],[-4,1],[-1,-1],[-4,-4],[0,-2.5],[4,-4],[1,-1],[4,1],[1,1]]),
+  // 五角形：頂点(0,4),(±4,1),(±2,-4)
+  pent:()=>polyStroke([[0,4],[-4,1],[-2,-4],[2,-4],[4,1]]),
+  // 正六角形：左右が頂点（外接円の半径4）
+  hex:()=>polyStroke([0,1,2,3,4,5].map(k=>{
+    const th=k*Math.PI/3;
+    return [round(4*Math.cos(th),4), round(4*Math.sin(th),4)];
+  })),
+  // ダイヤ（ひし形）
+  diamond:()=>polyStroke([[0,4],[4,0],[0,-4],[-4,0]]),
+  // 矢印（右向きを基本にして90°ずつ回す）
+  arrowR:()=>polyStroke(ARROW_BASE),
+  arrowU:()=>polyStroke(ARROW_BASE.map(([x,y])=>[-y,x])),
+  arrowL:()=>polyStroke(ARROW_BASE.map(([x,y])=>[-x,-y])),
+  arrowD:()=>polyStroke(ARROW_BASE.map(([x,y])=>[y,-x])),
   heart:()=>{
     const P=[];
     for(let i=0;i<=80;i++){
@@ -1768,14 +2112,39 @@ function bind(){
   document.querySelectorAll("[data-load]").forEach(b=>b.onclick=()=>{
     state.strokes[b.dataset.load]=[PRESETS[b.dataset.shape]()]; recompute();
   });
-  document.getElementById("btnPreset").onclick=()=>{
-    state.strokes.A=[PRESETS.cross()]; state.strokes.B=[PRESETS.tri()]; state.pairShift=0; recompute();
+  const loadEx=(a,b)=>{
+    state.strokes.A=[a]; state.strokes.B=[b]; state.pairShift=0; recompute();
   };
+  document.getElementById("ex1").onclick=()=>loadEx(PRESETS.tri(),     PRESETS.diamond());
+  document.getElementById("ex2").onclick=()=>loadEx(PRESETS.arrowL(),  PRESETS.arrowL());
+  document.getElementById("ex3").onclick=()=>loadEx(PRESETS.arrowD(),  PRESETS.arrowD());
   document.getElementById("btnClear").onclick=()=>{state.strokes.A=[];state.strokes.B=[];recompute();};
 
   document.getElementById("optSnapShape").onchange=e=>state.snapShape=e.target.checked;
   document.getElementById("optPen").onchange=e=>state.penOnly=e.target.checked;
   document.getElementById("optGrid").onchange=e=>state.grid=parseFloat(e.target.value);
+  // 式で入力
+  let texTarget="A";
+  const tA=document.getElementById("texA"), tB=document.getElementById("texB");
+  const texMsg=document.getElementById("texMsg");
+  const setTarget=(k)=>{ texTarget=k; tA.classList.toggle("on",k==="A"); tB.classList.toggle("on",k==="B"); };
+  tA.onclick=()=>setTarget("A");
+  tB.onclick=()=>setTarget("B");
+  const runTex=(replace)=>{
+    const {strokes,errs}=texToStrokes(document.getElementById("texIn").value);
+    if(!strokes.length && !errs.length){ texMsg.textContent="式が空です"; return; }
+    if(strokes.length){
+      if(replace) state.strokes[texTarget]=strokes;
+      else state.strokes[texTarget]=state.strokes[texTarget].concat(strokes);
+      recompute();
+    }
+    texMsg.textContent = errs.length
+      ? `${strokes.length}本を反映 / ${errs[0]}`
+      : `${strokes.length}本を図形${texTarget}に反映`;
+  };
+  document.getElementById("texApply").onclick=()=>runTex(true);
+  document.getElementById("texAdd").onclick=()=>runTex(false);
+
   document.getElementById("optFitX").onchange=e=>{state.fitx=e.target.checked;recompute();};
   document.getElementById("optFlipB").onchange=e=>{
     state.flipB=e.target.checked;
@@ -1863,7 +2232,7 @@ function bind(){
 }
 
 bind();
-state.strokes.A=[PRESETS.cross()]; state.strokes.B=[PRESETS.tri()];
+state.strokes.A=[PRESETS.tri()]; state.strokes.B=[PRESETS.diamond()];
 recompute();
 requestAnimationFrame(loop);
 </script>
