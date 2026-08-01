@@ -166,6 +166,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
       <button id="ex1" title="図形A＝三角形、図形B＝ダイヤ">例★1</button>
       <button id="ex2" title="図形A＝左矢印、図形B＝左矢印">例★2</button>
       <button id="ex3" title="図形A＝下矢印、図形B＝下矢印">例★3</button>
+      <button id="ex4" title="図形A＝五角形、図形B＝星">例★4</button>
       <button id="btnClear">両方消す</button>
       <button id="btnQR">QRで他の端末へ</button>
     </div>
@@ -2118,6 +2119,7 @@ function bind(){
   document.getElementById("ex1").onclick=()=>loadEx(PRESETS.tri(),     PRESETS.diamond());
   document.getElementById("ex2").onclick=()=>loadEx(PRESETS.arrowL(),  PRESETS.arrowL());
   document.getElementById("ex3").onclick=()=>loadEx(PRESETS.arrowD(),  PRESETS.arrowD());
+  document.getElementById("ex4").onclick=()=>loadEx(PRESETS.pent(),    PRESETS.star());
   document.getElementById("btnClear").onclick=()=>{state.strokes.A=[];state.strokes.B=[];recompute();};
 
   document.getElementById("optSnapShape").onchange=e=>state.snapShape=e.target.checked;
