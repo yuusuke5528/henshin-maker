@@ -188,8 +188,11 @@ textarea{width:100%;min-height:150px;margin-top:10px;font-family:var(--mono);fon
 .m sub{font-size:.72em}
 .m .op{padding:0 .17em}               /* ＋−× の前後に、LaTeX と同じくらいの空きを入れる */
 .m .fn{padding-right:.13em}           /* sin x のように、関数名と中身のあいだを少しあける */
-.rt{display:inline-flex;align-items:flex-start;margin:0 .06em}
-.rt>span{border-top:1px solid currentColor;padding:.1em .18em 0 .1em;margin-left:-.06em}
+/* ルート。左の斜めの線を SVG で描き、上線とすきま無くつなげる。中身が高いと縦に伸びる */
+.rt{display:inline-block;position:relative;padding-left:.62em;margin:0 .05em}
+.rt>svg{position:absolute;left:0;top:0;width:.6em;height:100%;overflow:visible}
+.rt>svg path{fill:none;stroke:currentColor;stroke-width:1;vector-effect:non-scaling-stroke}
+.rt>.rd{display:block;border-top:1px solid currentColor;padding:.1em .18em 0 .04em}
 kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--ink-2)}
 
 /* ---- QR ---- */
@@ -1974,7 +1977,10 @@ function astHtml(n, prec=0){
     case "x":   return "<i>x</i>";
     case "neg": return wrap("−"+astHtml(n.a,3), 2);
     case "call": {
-      if(n.f==="sqrt") return `<span class="rt">√<span>${astHtml(n.a,0)}</span></span>`;
+      // √ は字を置かず、中身の高さに合わせて伸びる線として描く（上線とつながるように）
+      if(n.f==="sqrt") return `<span class="rt"><svg viewBox="0 0 10 10" preserveAspectRatio="none"`
+        + ` aria-hidden="true"><path d="M0 6.2 L2.3 6.2 L5 9.7 L8.7 0 L11 0"/></svg>`
+        + `<span class="rd">${astHtml(n.a,0)}</span></span>`;
       const nm=(n.f==="log"&&n.base) ? `log<sub>${astHtml(n.base,0)}</sub>` : (FN_HTML[n.f]||n.f);
       const a=n.a;                       // sin x のように、要らない括弧は付けない
       if(a.n==="neg" || (a.n==="bin" && (a.o==="+"||a.o==="-"||(a.o==="*"&&!a.imp))))
