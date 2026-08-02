@@ -161,6 +161,24 @@ canvas#cv3d:active{cursor:grabbing}
 textarea{width:100%;min-height:150px;margin-top:10px;font-family:var(--mono);font-size:11.5px;line-height:1.55;
   padding:10px;border:1px solid var(--line);border-radius:4px;background:var(--board);color:var(--ink);resize:vertical}
 .hint{font-size:12px;color:var(--ink-3);margin:6px 0 0}
+
+/* ---- 式のボタン入力と、打った式の数式表示 ---- */
+.keys{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+.keys button{font-family:var(--math);font-size:16px;min-width:38px;padding:6px 10px;line-height:1.25}
+.keys button.wide{font-family:var(--sans);font-size:12.5px}
+.keys .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 3px}
+.texview{min-height:40px;padding:8px 10px;margin-bottom:7px;
+  border:1px solid var(--line);border-radius:4px;background:var(--board);
+  display:flex;flex-direction:column;align-items:flex-start;gap:5px;overflow-x:auto}
+.texview .m{font-size:17px}
+.texview .fr{vertical-align:middle}   /* 分数は真ん中ぞろえ（2乗が入っても崩れない） */
+.texview .bad{color:var(--warn);white-space:normal}
+.texview .why{font-family:var(--sans);font-size:11.5px}
+.texview .empty2{color:var(--ink-3);font-size:12.5px}
+.m sup{font-size:.72em;vertical-align:.5em;padding-left:.04em}
+.m sub{font-size:.72em}
+.rt{display:inline-flex;align-items:flex-start;margin:0 .06em}
+.rt>span{border-top:1px solid currentColor;padding:.1em .18em 0 .1em;margin-left:-.06em}
 kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--ink-2)}
 
 /* ---- QR ---- */
@@ -284,9 +302,31 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
             <button class="chip" id="texApply">この図形にする</button>
             <button class="chip" id="texAdd">付け足す</button>
           </div>
+          <div class="keys" id="texKeys">
+            <button class="chip" data-ins="y = " title="y＝">y=</button>
+            <button class="chip" data-ins="x">x</button>
+            <button class="chip" data-ins="=">=</button>
+            <span class="sep"></span>
+            <button class="chip" data-ins="+">＋</button>
+            <button class="chip" data-ins="-">−</button>
+            <button class="chip" data-ins="\times " title="かけ算">×</button>
+            <button class="chip" data-ins="/" title="わり算（分数になります）">÷</button>
+            <span class="sep"></span>
+            <button class="chip" data-ins="\sqrt{}" data-back="1" title="ルート">√</button>
+            <button class="chip" data-ins="^2" title="2乗">x²</button>
+            <button class="chip" data-ins="()" data-back="1">( )</button>
+            <span class="sep"></span>
+            <button class="chip" data-ins=" \le " title="以下（範囲を書くとき）">≦</button>
+            <button class="chip wide" data-ins=" (-4 \le x \le 4)" data-line="1" title="その行の終わりに、xの範囲を付け足す">範囲</button>
+            <button class="chip wide" data-ins="&#10;">改行</button>
+            <span class="sep"></span>
+            <button class="chip" id="texBs" title="1文字消す">⌫</button>
+          </div>
+          <div class="texview" id="texView"></div>
           <textarea id="texIn" spellcheck="false" style="min-height:104px;margin-top:0"
             placeholder="1行に1つ。&#10;y = 2x+4 \quad (-4 \le x \le 0)&#10;y = -2x+4 (0 \le x \le 4)&#10;y = -4 (-4 \le x \le 4)"></textarea>
           <p class="hint" style="margin-top:6px">
+            上のボタンで入れられます。数はキーボードから打ってください。打った式は上の枠に数式の形で出ます。<br>
             \frac \sqrt ^ \pi \sin \cos \log などが使えます。<br>
             x = 2 (-1 \le y \le 3) と書けば縦線も引けます。
           </p>
@@ -1718,13 +1758,13 @@ function texParse(tk){
     if(t.k==="id"){
       p++;
       if(t.v==="x") return {n:"x"};
-      if(t.v==="e") return {n:"num", v:Math.E};
+      if(t.v==="e") return {n:"num", v:Math.E, t:"e"};
       throw new Error("使えない文字「"+t.v+"」");
     }
     if(t.k==="cmd"){
       p++;
       if(t.v==="frac"){ const a=group(), b=group(); return {n:"bin", o:"/", a, b}; }
-      if(t.v==="pi") return {n:"num", v:Math.PI};
+      if(t.v==="pi") return {n:"num", v:Math.PI, t:"π"};
       if(TEX_FUNCS.includes(t.v)) return {n:"call", f:t.v, a:group()};
       throw new Error("使えない命令「\\"+t.v+"」");
     }
@@ -1747,7 +1787,7 @@ function texParse(tk){
     for(;;){
       if(eat("*")) { a={n:"bin", o:"*", a, b:unary()}; continue; }
       if(eat("/")) { a={n:"bin", o:"/", a, b:unary()}; continue; }
-      if(starts())  { a={n:"bin", o:"*", a, b:unary()}; continue; }   // 2x のような省略
+      if(starts())  { a={n:"bin", o:"*", a, b:unary(), imp:1}; continue; }   // 2x のような省略
       break;
     }
     return a;
@@ -1874,6 +1914,65 @@ function texToStrokes(text){
     }
   });
   return {strokes:out, errs};
+}
+
+/* =================================================================
+   打った式を「見たままの数式」に組む（LaTeX を書けない人むけの表示）
+   texParse の木をそのまま HTML にする。prec は「これより弱ければ括弧」
+   （+ − …2 ／ × ÷ …3 ／ 累乗・数・文字…5）
+   ================================================================= */
+const esc=(s)=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const FN_HTML={sqrt:"√",ln:"log<sub>e</sub>",abs:"abs",exp:"exp",
+  sin:"sin",cos:"cos",tan:"tan",asin:"sin<sup>−1</sup>",acos:"cos<sup>−1</sup>",atan:"tan<sup>−1</sup>",
+  sinh:"sinh",cosh:"cosh",tanh:"tanh",log:"log"};
+function astHtml(n, prec=0){
+  const wrap=(s,p)=> p<prec ? `(${s})` : s;
+  switch(n.n){
+    case "num": return n.t || String(round(n.v,6)).replace("-","−");
+    case "x":   return "<i>x</i>";
+    case "neg": return wrap("−"+astHtml(n.a,3), 2);
+    case "call":
+      if(n.f==="sqrt") return `<span class="rt">√<span>${astHtml(n.a,0)}</span></span>`;
+      return `${FN_HTML[n.f]||n.f}(${astHtml(n.a,0)})`;
+    case "bin":
+      if(n.o==="/") return `<span class="fr"><span>${astHtml(n.a,0)}</span><span>${astHtml(n.b,0)}</span></span>`;
+      if(n.o==="^") return `${astHtml(n.a,5)}<sup>${astHtml(n.b,0)}</sup>`;
+      if(n.o==="*") return wrap(astHtml(n.a,3)+(n.imp?"":"×")+astHtml(n.b,4), 3);
+      return wrap(astHtml(n.a,2)+(n.o==="+"?"+":"−")+astHtml(n.b,3), 2);
+  }
+  return "?";
+}
+/* 「-4 \le x \le 4」の部分を見たままに */
+function texDomHtml(dom){
+  const s=String(dom).replace(/\\leqq|\\leq|\\le|<=|≤|</g,"≦")
+                     .replace(/\\geqq|\\geq|\\ge|>=|≥|>/g,"≧")
+                     .replace(/\\[a-zA-Z]+/g,"")
+                     .replace(/-/g,"−")
+                     .replace(/\s+/g," ").trim();
+  return esc(s).replace(/[xy]/g,m=>`<i>${m}</i>`);
+}
+/* 1行を数式の HTML に（読めないときは例外） */
+function texLineHtml(line){
+  const {body,dom}=texSplitDomain(line);
+  const vert=/^\s*x\s*=/.test(body);
+  const rhs=vert ? body.replace(/^\s*x\s*=\s*/,"")
+                 : body.replace(/^\s*[yf]\s*(\(\s*x\s*\))?\s*=\s*/i,"");
+  const html=astHtml(texParse(texLex(texPrep(rhs))));
+  const d=dom?`　(${texDomHtml(dom)})`:"";
+  return `<i>${vert?"x":"y"}</i> = ${html}${d}`;
+}
+function texPreview(){
+  const box=document.getElementById("texView");
+  const lines=document.getElementById("texIn").value.split(/\r?\n/)
+    .filter(s=>s.trim() && !s.trim().startsWith("%"));
+  if(!lines.length){
+    box.innerHTML=`<span class="empty2">ここに、打った式が数式の形で出ます</span>`;
+    return;
+  }
+  box.innerHTML=lines.map(l=>{
+    try{ return `<div class="m">${texLineHtml(l)}</div>`; }
+    catch(e){ return `<div class="m bad">${esc(l)} <span class="why">← ${esc(e.message)}</span></div>`; }
+  }).join("");
 }
 
 /* 右向きの矢印（先端(4,0)・矢じりの幅±3・棒の幅±1・棒は x=-4〜0） */
@@ -2208,6 +2307,39 @@ function bind(){
   };
   document.getElementById("texApply").onclick=()=>runTex(true);
   document.getElementById("texAdd").onclick=()=>runTex(false);
+
+  // 記号のボタン入力（カーソルの所に入れる）と、打った式の数式表示
+  const texIn=document.getElementById("texIn");
+  const putTex=(ins,back)=>{
+    const s=texIn.selectionStart, e=texIn.selectionEnd, v=texIn.value;
+    texIn.value=v.slice(0,s)+ins+v.slice(e);
+    const c=s+ins.length-(back||0);
+    texIn.focus(); texIn.setSelectionRange(c,c);
+    texPreview();
+  };
+  const putTexLineEnd=(ins)=>{               // その行の終わりに入れる（範囲の指定用）
+    const v=texIn.value, s=texIn.selectionStart;
+    let e=v.indexOf("\n",s); if(e<0) e=v.length;
+    texIn.value=v.slice(0,e)+ins+v.slice(e);
+    texIn.focus(); texIn.setSelectionRange(e+ins.length,e+ins.length);
+    texPreview();
+  };
+  document.getElementById("texKeys").addEventListener("click",(ev)=>{
+    const b=ev.target.closest("button"); if(!b) return;
+    if(b.id==="texBs"){                       // ⌫ 選んだ所、なければ1文字消す
+      const s=texIn.selectionStart, e=texIn.selectionEnd, v=texIn.value;
+      const a=(s===e)?Math.max(0,s-1):s;
+      texIn.value=v.slice(0,a)+v.slice(e);
+      texIn.focus(); texIn.setSelectionRange(a,a);
+      texPreview();
+      return;
+    }
+    if(b.dataset.ins===undefined) return;
+    if(b.dataset.line) putTexLineEnd(b.dataset.ins);
+    else               putTex(b.dataset.ins, +(b.dataset.back||0));
+  });
+  texIn.addEventListener("input",texPreview);
+  texPreview();
 
   document.getElementById("optFitX").onchange=e=>{state.fitx=e.target.checked;recompute();};
   document.getElementById("optFlipB").onchange=e=>{
