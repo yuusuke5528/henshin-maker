@@ -21,11 +21,17 @@
   --blue:#2a5db0;
   --violet:#6d4fa8;
   --warn:#a4661a;
+  --danger:#c0392b;
+  --danger-fg:#ffffff;
+  --undo-bg:#dfe5ee;
+  --undo-fg:#2f4568;
   --screen:#0d1119;
   --screen-2:#151b26;
   --screen-line:#26303f;
   --screen-ink:#c3ccd9;
   --screen-ink-2:#7c8899;
+  --spin-bg:#20303f;
+  --spin-fg:#8fd0c8;
   --sans:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic Medium","Yu Gothic",-apple-system,"Segoe UI",sans-serif;
   --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   --math:"Hiragino Mincho ProN","Times New Roman",Georgia,serif;
@@ -35,6 +41,7 @@
     --paper:#0c1017; --panel:#141a23; --board:#111721;
     --ink:#e5eaf1; --ink-2:#a2aebd; --ink-3:#707d8e;
     --line:#28313e; --line-2:#1e2632;
+    --danger:#d9503f; --danger-fg:#ffffff; --undo-bg:#28344a; --undo-fg:#b9cbe6;
     --red:#ff6f5c; --blue:#6ea5f2; --violet:#a98bee; --warn:#d6a144;
   }
 }
@@ -42,12 +49,14 @@
   --paper:#0c1017; --panel:#141a23; --board:#111721;
   --ink:#e5eaf1; --ink-2:#a2aebd; --ink-3:#707d8e;
   --line:#28313e; --line-2:#1e2632;
-  --red:#ff6f5c; --blue:#6ea5f2; --violet:#a98bee; --warn:#d6a144;
+  --danger:#d9503f; --danger-fg:#ffffff; --undo-bg:#28344a; --undo-fg:#b9cbe6;
+    --red:#ff6f5c; --blue:#6ea5f2; --violet:#a98bee; --warn:#d6a144;
 }
 :root[data-theme="light"]{
   --paper:#eef1f5; --panel:#ffffff; --board:#fbfcfd;
   --ink:#151b24; --ink-2:#4d5968; --ink-3:#7b8797;
   --line:#d2d9e2; --line-2:#e6ebf1;
+  --danger:#c0392b; --danger-fg:#ffffff; --undo-bg:#dfe5ee; --undo-fg:#2f4568;
   --red:#cf3b2c; --blue:#2a5db0; --violet:#6d4fa8; --warn:#a4661a;
 }
 
@@ -64,6 +73,7 @@ body{
 .top h1{margin:0;font-size:clamp(19px,2.4vw,25px);font-weight:600;letter-spacing:.04em;text-wrap:balance}
 .eyebrow{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:2px}
 .top p{margin:0;color:var(--ink-2);font-size:12.5px;max-width:52ch}
+.guide{margin:-4px 0 0;color:var(--ink);font-size:14px;line-height:1.7}
 .top .grow{flex:1 1 240px}
 
 /* ---- controls ---- */
@@ -97,6 +107,14 @@ canvas.draw{display:block;width:100%;background:var(--board);touch-action:none;c
 .board__ft{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:7px 10px;border-top:1px solid var(--line-2)}
 .board__ft .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 3px}
 .chip{font-size:11.5px;padding:4px 8px}
+/* 「1つ戻す」「消す」は別行に大きく、色を分ける */
+.board__act{display:flex;gap:8px;padding:8px 10px 0}
+.board__act button{flex:0 0 auto;font-size:12.5px;font-weight:600;letter-spacing:.03em;
+  padding:6px 14px;border-radius:5px;border-width:1.5px}
+.btn-undo{background:var(--undo-bg);color:var(--undo-fg);border-color:var(--undo-fg)}
+.btn-undo:hover{filter:brightness(.96)}
+.btn-clear{background:var(--danger);color:var(--danger-fg);border-color:var(--danger)}
+.btn-clear:hover{filter:brightness(1.08)}
 
 /* ---- viewport (instrument panel: dark in both themes) ---- */
 .view{background:var(--screen);border:1px solid var(--screen-line);border-radius:5px;overflow:hidden;color:var(--screen-ink)}
@@ -105,7 +123,15 @@ canvas.draw{display:block;width:100%;background:var(--board);touch-action:none;c
 .view__hd .note{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--screen-ink-2)}
 canvas#cv3d{display:block;width:100%;touch-action:none;cursor:grab}
 canvas#cv3d:active{cursor:grabbing}
-.view__ft{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:8px 10px;border-top:1px solid var(--screen-line)}
+.view__ft{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:8px 10px}
+/* 自動回転は大きく、その下に視点、いちばん下にその他 */
+.view__act{display:flex;gap:8px;align-items:center;padding:9px 10px 0;border-top:1px solid var(--screen-line)}
+.view__act #spin{font-size:13.5px;font-weight:600;letter-spacing:.04em;padding:8px 20px;border-radius:5px;
+  background:var(--spin-bg);color:var(--spin-fg);border-color:var(--spin-fg);border-width:1.5px}
+.view__act #spin.on{background:var(--spin-fg);color:var(--screen);border-color:var(--spin-fg)}
+.view__act select{font-size:13px;padding:7px 8px;border-radius:5px}
+.view__eye{display:flex;gap:8px;padding:8px 10px 0}
+.view__eye button{flex:1 1 0;font-size:13px;font-weight:600;padding:7px 8px;border-radius:5px}
 .view button,.view select{background:var(--screen-2);color:var(--screen-ink);border-color:var(--screen-line)}
 .view button:hover{border-color:#48566b}
 .view button.on{background:var(--screen-ink);color:var(--screen);border-color:var(--screen-ink)}
@@ -161,7 +187,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
       <span class="eyebrow">anamorphic solid · parametric builder</span>
       <h1>変身立体メーカー</h1>
     </div>
-    <p>2つの図形を描くと、一方から見るとA・もう一方から見るとBに見える立体の媒介変数表示を計算します。指を離さずに止めると図形が整形されます。</p>
+    <p>2つの図形を描くと、一方から見るとA・もう一方から見るとBに見える立体の媒介変数表示を計算します。</p>
     <div class="row">
       <button id="ex1" title="図形A＝三角形、図形B＝ダイヤ">例★1</button>
       <button id="ex2" title="図形A＝左矢印、図形B＝左矢印">例★2</button>
@@ -171,6 +197,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
       <button id="btnQR">QRで他の端末へ</button>
     </div>
   </header>
+
+  <p class="guide">下のボタンから図形を選ぶか，自由に図形を書いてください。指を離さずに止めると図形が整形されます。</p>
 
   <div class="modal" id="qrModal" hidden>
     <div class="modal__card" role="dialog" aria-modal="true" aria-labelledby="qrTitle">
@@ -196,10 +224,11 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <span class="note" id="statA">—</span>
         </div>
         <div class="pad"><canvas class="draw" id="cvA"></canvas></div>
+        <div class="board__act">
+          <button class="btn-undo" data-undo="A">1つ戻す</button>
+          <button class="btn-clear" data-clear="A">ぜんぶ消す</button>
+        </div>
         <div class="board__ft">
-          <button class="chip" data-undo="A">1つ戻す</button>
-          <button class="chip" data-clear="A">消す</button>
-          <span class="sep"></span>
           <button class="chip" data-load="A" data-shape="tri">三角</button>
           <button class="chip" data-load="A" data-shape="cross">ばつ</button>
           <button class="chip" data-load="A" data-shape="circle">円</button>
@@ -223,10 +252,11 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <span class="note" id="statB">—</span>
         </div>
         <div class="pad"><canvas class="draw" id="cvB"></canvas></div>
+        <div class="board__act">
+          <button class="btn-undo" data-undo="B">1つ戻す</button>
+          <button class="btn-clear" data-clear="B">ぜんぶ消す</button>
+        </div>
         <div class="board__ft">
-          <button class="chip" data-undo="B">1つ戻す</button>
-          <button class="chip" data-clear="B">消す</button>
-          <span class="sep"></span>
           <button class="chip" data-load="B" data-shape="tri">三角</button>
           <button class="chip" data-load="B" data-shape="cross">ばつ</button>
           <button class="chip" data-load="B" data-shape="circle">円</button>
@@ -290,10 +320,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <span class="note" id="stat3d">—</span>
         </div>
         <div class="pad"><canvas id="cv3d"></canvas></div>
-        <div class="view__ft">
-          <button id="v1">視点①（Aが見える）</button>
-          <button id="v2">視点②（Bが見える）</button>
-          <button id="v0">斜めから</button>
+        <div class="view__act">
           <button id="spin">自動回転</button>
           <select id="spinSpeed" title="自動回転の速さ">
             <option value="0.45">とても遅い</option>
@@ -302,8 +329,15 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
             <option value="1.7">速い</option>
             <option value="2.5">とても速い</option>
           </select>
-          <span style="flex:1"></span>
+        </div>
+        <div class="view__eye">
+          <button id="v1">視点①（Aが見える）</button>
+          <button id="v2">視点②（Bが見える）</button>
+        </div>
+        <div class="view__ft">
+          <button id="v0">斜めから</button>
           <button id="pairShift" title="どの線とどの線を組にするかを変える">対応を変える</button>
+          <span style="flex:1"></span>
           <label class="chk" title="線を少なくするか、1本につながることを優先するか"><input type="checkbox" id="optSimple" checked>線を少なく</label>
           <label class="chk"><input type="checkbox" id="optAxes" checked>座標軸</label>
         </div>
