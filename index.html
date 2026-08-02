@@ -208,6 +208,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button class="chip" data-load="A" data-shape="hex">六角</button>
           <button class="chip" data-load="A" data-shape="diamond">ダイヤ</button>
           <button class="chip" data-load="A" data-shape="heart">ハート</button>
+          <button class="chip" data-load="A" data-shape="flower" title="花びら4枚の花">花びら</button>
           <button class="chip" data-load="A" data-shape="arrowU" title="上向きの矢印">矢印↑</button>
           <button class="chip" data-load="A" data-shape="arrowD" title="下向きの矢印">矢印↓</button>
           <button class="chip" data-load="A" data-shape="arrowL" title="左向きの矢印">矢印←</button>
@@ -234,6 +235,7 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button class="chip" data-load="B" data-shape="hex">六角</button>
           <button class="chip" data-load="B" data-shape="diamond">ダイヤ</button>
           <button class="chip" data-load="B" data-shape="heart">ハート</button>
+          <button class="chip" data-load="B" data-shape="flower" title="花びら4枚の花">花びら</button>
           <button class="chip" data-load="B" data-shape="arrowU" title="上向きの矢印">矢印↑</button>
           <button class="chip" data-load="B" data-shape="arrowD" title="下向きの矢印">矢印↓</button>
           <button class="chip" data-load="B" data-shape="arrowL" title="左向きの矢印">矢印←</button>
@@ -1877,6 +1879,25 @@ const PRESETS={
       const t=i/80*2*Math.PI;
       P.push({x:round(4*Math.pow(Math.sin(t),3)/1.6,3),
               y:round((3.25*Math.cos(t)-1.25*Math.cos(2*t)-0.5*Math.cos(3*t)-0.25*Math.cos(4*t))/1.6*1.25,3)});
+    }
+    return {segs:[{t:"F",pts:P}]};
+  },
+  /* 花びら5枚（1枚が真上）。半径1.5の円を中心から2.5の所に5つ置いて重ねた形。
+     隣どうしが交わる所（原点から R）でくびれる。R より内側は中心の円で埋める */
+  flower:()=>{
+    const n=5, pr=1.5, d=2.5, a=Math.PI/n, N=180, P=[];
+    const R=d*Math.cos(a)-Math.sqrt(pr*pr-(d*Math.sin(a))**2);
+    for(let i=0;i<=N;i++){
+      const t=i/N*2*Math.PI;
+      let r=R;
+      for(let k=0;k<n;k++){                       // 各花びらの円と半直線の交点（遠い方）
+        const c=d*Math.cos(t-(Math.PI/2+k*2*Math.PI/n));
+        if(c<=0) continue;
+        const h2=d*d-c*c;
+        if(h2>pr*pr) continue;
+        r=Math.max(r, c+Math.sqrt(pr*pr-h2));
+      }
+      P.push({x:round(r*Math.cos(t),3), y:round(r*Math.sin(t),3)});
     }
     return {segs:[{t:"F",pts:P}]};
   }
