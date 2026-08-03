@@ -172,7 +172,10 @@ textarea{width:100%;min-height:150px;margin-top:10px;font-family:var(--mono);fon
 .hint{font-size:12px;color:var(--ink-3);margin:6px 0 0}
 
 /* ---- 式のボタン入力と、打った式の数式表示 ---- */
+.texgo{display:flex;flex-wrap:nowrap;gap:6px}  /* この図形にする／付け足す は必ず横に並べる */
 .keys{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
+/* ⌫ は枠の大きさを変えず、字だけ大きく（行の高さと左右の余白で元の大きさに戻す） */
+.keys #texBs{font-size:22px;line-height:20px;padding-left:6px;padding-right:6px}
 .keys button{font-family:var(--math);font-size:16px;min-width:38px;padding:6px 10px;line-height:1.25}
 .keys button.wide{font-family:var(--sans);font-size:12.5px}
 .keys .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 3px}
@@ -317,8 +320,10 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
             <button class="chip on" id="texA">図形Aへ</button>
             <button class="chip" id="texB">図形Bへ</button>
             <span style="flex:1"></span>
-            <button class="chip" id="texApply">この図形にする</button>
-            <button class="chip" id="texAdd">付け足す</button>
+            <span class="texgo">
+              <button class="chip btn-undo" id="texApply">この図形にする</button>
+              <button class="chip btn-undo" id="texAdd">付け足す</button>
+            </span>
           </div>
           <div class="keys" id="texKeys">
             <button class="chip" data-ins="y">y</button>
