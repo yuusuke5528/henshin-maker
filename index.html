@@ -1815,6 +1815,7 @@ function texParse(tk){
     if(t.k==="id"){
       p++;
       if(t.v==="x") return {n:"x"};
+      if(t.v==="y") return {n:"y"};
       if(t.v==="e") return {n:"num", v:Math.E, t:"e"};
       throw new Error("使えない文字「"+t.v+"」");
     }
@@ -1867,18 +1868,21 @@ function texParse(tk){
   if(p<tk.length) throw new Error("余分な記号があります");
   return e;
 }
-function texEval(n,x){
+function texEval(n,x,y){
   switch(n.n){
     case "num": return n.v;
     case "x":   return x;
-    case "neg": return -texEval(n.a,x);
+    case "y":
+      if(y===undefined) throw new Error("y は右辺には使えません（円は x^2+y^2=16 のように書いてください）");
+      return y;
+    case "neg": return -texEval(n.a,x,y);
     case "bin": {
-      const a=texEval(n.a,x), b=texEval(n.b,x);
+      const a=texEval(n.a,x,y), b=texEval(n.b,x,y);
       return n.o==="+"?a+b : n.o==="-"?a-b : n.o==="*"?a*b : n.o==="/"?a/b : Math.pow(a,b);
     }
     case "call": {
-      const a=texEval(n.a,x);
-      if(n.f==="log" && n.base) return Math.log(a)/Math.log(texEval(n.base,x));
+      const a=texEval(n.a,x,y);
+      if(n.f==="log" && n.base) return Math.log(a)/Math.log(texEval(n.base,x,y));
       switch(n.f){
         case "sqrt":return Math.sqrt(a); case "abs":return Math.abs(a); case "exp":return Math.exp(a);
         case "sin":return Math.sin(a);   case "cos":return Math.cos(a);  case "tan":return Math.tan(a);
@@ -1948,6 +1952,91 @@ function texPlot(fn, a, b, N){
   }
   return out;
 }
+/* 1行を「左辺 = 右辺」に分ける（= が無ければ null）。y= / f(x)= / x= は別あつかい */
+function texSplitEq(body){
+  const i=body.indexOf("=");
+  if(i<0) return null;
+  return {L:body.slice(0,i).trim(), R:body.slice(i+1).trim()};
+}
+/* 「= のある式」を図形にする。
+   F(x,y) ＝ 左辺−右辺 を  a x² + b y² + c xy + d x + e y + g  の形にほどく。
+   係数は6点の値から出る（この形でなければ、別の点で合わないので弾く）。
+     ・x² と y² の係数が同じで xy が無い → 円（円弧としてそのまま持つ＝いちばんきれい）
+     ・y について1次 → ふつうのグラフ／2次 → 上下2本のグラフ
+     ・y が出てこない → 縦線 */
+function texConic(Ls, Rs, dom){
+  const A=texParse(texLex(texPrep(Ls))), B=texParse(texLex(texPrep(Rs)));
+  const F=(x,y)=>texEval(A,x,y)-texEval(B,x,y);
+  const g=F(0,0), px=F(1,0), mx=F(-1,0), py=F(0,1), my=F(0,-1), q=F(1,1);
+  const a=(px+mx)/2-g, d=(px-mx)/2;
+  const b=(py+my)/2-g, e=(py-my)/2;
+  const c=q-a-b-d-e-g;
+  const TEST=[[2,3],[-1.5,0.7],[3,-2],[0.4,4],[1.7,-0.6]];
+  const fits=(f)=>{                       // 値が出ない点（√の中が負など）は飛ばして比べる
+    let n=0;
+    for(const [x,y] of TEST){
+      const v=F(x,y), w=f(x,y);
+      if(!isFinite(v)||!isFinite(w)) continue;
+      if(Math.abs(v-w)>1e-6*(1+Math.abs(v))) return false;
+      n++;
+    }
+    return n>=2;
+  };
+  const quad=fits((x,y)=>a*x*x+b*y*y+c*x*y+d*x+e*y+g);          // 本当に2次式か
+  if(!quad){                     // 2次式でなくても、y について1次なら解ける（√x+y=2 など）
+    if(!fits((x,y)=>{const f0=F(x,0); return f0+y*(F(x,1)-f0);}))
+      throw new Error("この形は読めません（y について1次か、x と y の2次までの式にしてください）");
+    const [lo,hi]=texRange(dom,"x",XMIN,XMAX);
+    if(!(hi>lo)) throw new Error("定義域が逆です");
+    const segs=texPlot((x)=>{const f0=F(x,0); return -f0/(F(x,1)-f0);}, lo, hi);
+    if(!segs.length) throw new Error("その範囲で値が出ません");
+    return [{segs}];
+  }
+  const big=Math.max(Math.abs(a),Math.abs(b),Math.abs(c),Math.abs(d),Math.abs(e),Math.abs(g),1);
+  const z=(v)=>Math.abs(v)<1e-9*big;
+
+  if(!z(a) && z(a-b) && z(c)){                                  // ---- 円 ----
+    const cx=-d/(2*a), cy=-e/(2*a), r2=cx*cx+cy*cy-g/a;
+    if(r2<=1e-12) throw new Error("この式では円になりません");
+    const r=Math.sqrt(r2);
+    if(!dom) return [{segs:[{t:"A",cx,cy,r,a0:0,a1:2*Math.PI}]}];
+    const [lo,hi]=texRange(dom,"x",XMIN,XMAX);                  // 範囲があれば上下の弧に切る
+    const x0=Math.max(lo,cx-r), x1=Math.min(hi,cx+r);
+    if(!(x1>x0)) throw new Error("その範囲に円がありません");
+    const th=(x)=>Math.acos(clamp((x-cx)/r,-1,1));
+    const t0=th(x1), t1=th(x0);
+    return [{segs:[{t:"A",cx,cy,r,a0:t0,a1:t1}]},
+            {segs:[{t:"A",cx,cy,r,a0:-t1,a1:-t0}]}];
+  }
+  if(z(b) && z(c) && z(e)){                                     // ---- y が無い＝縦線 ----
+    const [lo,hi]=texRange(dom,"y",YMIN,YMAX);
+    if(!(hi>lo)) throw new Error("縦線の範囲が逆です");
+    const xs=[];
+    if(z(a)){ if(z(d)) throw new Error("この式では図形になりません"); xs.push(-g/d); }
+    else{
+      const D=d*d-4*a*g;
+      if(D<0) throw new Error("この式では図形になりません");
+      xs.push((-d+Math.sqrt(D))/(2*a));
+      if(D>1e-12) xs.push((-d-Math.sqrt(D))/(2*a));
+    }
+    return xs.map(v=>({segs:[{t:"L", a:{x:v,y:lo}, b:{x:v,y:hi}}]}));
+  }
+  const [lo,hi]=texRange(dom,"x",XMIN,XMAX);
+  if(!(hi>lo)) throw new Error("定義域が逆です");
+  if(z(b)){                                                     // ---- y について1次 ----
+    const segs=texPlot((x)=>-(a*x*x+d*x+g)/(c*x+e), lo, hi);
+    if(!segs.length) throw new Error("その範囲で値が出ません");
+    return [{segs}];
+  }
+  const root=(s)=>(x)=>{                                        // ---- y について2次 ----
+    const B2=c*x+e, C2=a*x*x+d*x+g, D2=B2*B2-4*b*C2;
+    return D2<0 ? NaN : (-B2+s*Math.sqrt(D2))/(2*b);
+  };
+  const out=[];
+  for(const s of [1,-1]){ const segs=texPlot(root(s), lo, hi); if(segs.length) out.push({segs}); }
+  if(!out.length) throw new Error("その範囲で値が出ません");
+  return out;
+}
 /* 入力欄ぜんぶを図形に変換 */
 function texToStrokes(text){
   const out=[], errs=[];
@@ -1964,6 +2053,11 @@ function texToStrokes(text){
         const [lo,hi]=texRange(dom,"y",YMIN,YMAX);
         if(!(hi>lo)) throw new Error("縦線の範囲が逆です");
         out.push({segs:[{t:"L", a:{x:c,y:lo}, b:{x:c,y:hi}}]});
+        return;
+      }
+      const eq=texSplitEq(body);            // y= / x= 以外で = があれば、円などの方程式
+      if(eq && !/^\s*[yf]\s*(\(\s*x\s*\))?\s*$/i.test(eq.L)){
+        for(const st of texConic(eq.L, eq.R, dom)) out.push(st);
         return;
       }
       const [lo,hi]=texRange(dom,"x",XMIN,XMAX);
@@ -1993,6 +2087,7 @@ function astHtml(n, prec=0){
   switch(n.n){
     case "num": return n.t || String(round(n.v,6)).replace("-","−");
     case "x":   return "<i>x</i>";
+    case "y":   return "<i>y</i>";
     case "neg": return wrap("−"+astHtml(n.a,3), 2);
     case "call": {
       // √ は字を置かず、中身の高さに合わせて伸びる線として描く（上線とつながるように）
@@ -2026,12 +2121,13 @@ function texDomHtml(dom){
 /* 1行を数式の HTML に（読めないときは例外） */
 function texLineHtml(line){
   const {body,dom}=texSplitDomain(line);
-  const vert=/^\s*x\s*=/.test(body);
-  const rhs=vert ? body.replace(/^\s*x\s*=\s*/,"")
-                 : body.replace(/^\s*[yf]\s*(\(\s*x\s*\))?\s*=\s*/i,"");
-  const html=astHtml(texParse(texLex(texPrep(rhs))));
   const d=dom?`　(${texDomHtml(dom)})`:"";
-  return `<i>${vert?"x":"y"}</i> = ${html}${d}`;
+  const H=(s)=>astHtml(texParse(texLex(texPrep(s))));
+  const eq=texSplitEq(body);
+  if(!eq) return `<i>y</i> = ${H(body)}${d}`;                    // = が無ければ y= とみなす
+  const L=/^\s*[yf]\s*\(\s*x\s*\)\s*$/i.test(eq.L)               // f(x) はそのまま出す
+    ? `<i>${esc(eq.L.trim()[0])}</i>(<i>x</i>)` : H(eq.L);
+  return `${L} = ${H(eq.R)}${d}`;
 }
 function texPreview(){
   const box=document.getElementById("texView");
