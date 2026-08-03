@@ -188,11 +188,15 @@ textarea{width:100%;min-height:150px;margin-top:10px;font-family:var(--mono);fon
 .m sub{font-size:.72em}
 .m .op{padding:0 .17em}               /* ＋−× の前後に、LaTeX と同じくらいの空きを入れる */
 .m .fn{padding-right:.13em}           /* sin x のように、関数名と中身のあいだを少しあける */
-/* ルート。左の斜めの線を SVG で描き、上線とすきま無くつなげる。中身が高いと縦に伸びる */
-.rt{display:inline-block;position:relative;padding-left:.62em;margin:0 .05em}
-.rt>svg{position:absolute;left:0;top:0;width:.6em;height:100%;overflow:visible}
-.rt>svg path{fill:none;stroke:currentColor;stroke-width:1;vector-effect:non-scaling-stroke}
-.rt>.rd{display:block;border-top:1px solid currentColor;padding:.1em .18em 0 .04em}
+/* ルート。左の斜めの線を SVG で描き、上線とすきま無くつなげる。中身が高いと縦に伸びる。
+   高さは中身しだい（数だけなら数の高さ・分数が入れば分数の高さ）。そのため
+   .rt は行の高さを 0 にして中身だけで高さが決まるようにし、.rd に詰めた行間を持たせる */
+.rt{display:inline-block;position:relative;padding-left:.62em;margin:0 .05em;line-height:0}
+.rt>svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible}
+.rt>svg path{fill:none;stroke:currentColor;stroke-width:1;vector-effect:non-scaling-stroke;
+  stroke-linejoin:round;stroke-linecap:round}
+.rt>.rd{display:inline-block;line-height:1.05;
+  border-top:1px solid transparent;padding:.1em .18em 0 .04em}
 kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--ink-2)}
 
 /* ---- QR ---- */
@@ -2027,6 +2031,32 @@ function texPreview(){
     try{ return `<div class="m">${texLineHtml(l)}</div>`; }
     catch(e){ return `<div class="m bad">${esc(l)} <span class="why">← ${esc(e.message)}</span></div>`; }
   }).join("");
+  fitRoots(box);
+}
+/* ルートを、斜めの線から上の横線まで「ひと続きの1本の線」で描き直す。
+   中身を組んだあとの実寸(px)をそのまま viewBox にするので、
+   ・伸ばしても左のかぎの形がゆがまない
+   ・横線とのつなぎ目が段にならない（同じ1本の線の角なので）
+   内側のルートから先に直す（幅を変えると外側の幅が変わるため） */
+function fitRoots(box){
+  for(const rt of [...box.querySelectorAll(".rt")].reverse()){
+    const svg=rt.querySelector("svg"), path=svg&&svg.firstElementChild;
+    if(!path) continue;
+    const fs=parseFloat(getComputedStyle(rt).fontSize)||16;
+    const H=rt.offsetHeight;
+    const w=Math.max(fs*0.58, H*0.34);          // 斜めの部分の幅。高いほど少し広く
+    rt.style.paddingLeft=w.toFixed(2)+"px";
+    const W=rt.offsetWidth;                     // 幅を変えたあとの全体の幅
+    const sw=Math.min(1.5, 0.9+H/70), y=sw/2;   // 線の太さ。高いほど少し太く
+    path.setAttribute("d",
+        `M${(sw*0.4).toFixed(2)},${(H*0.60).toFixed(2)}`
+      + `L${(w*0.30).toFixed(2)},${(H*0.52).toFixed(2)}`
+      + `L${(w*0.54).toFixed(2)},${(H-sw*0.6).toFixed(2)}`
+      + `L${w.toFixed(2)},${y.toFixed(2)}`
+      + `L${W.toFixed(2)},${y.toFixed(2)}`);
+    path.setAttribute("stroke-width",sw.toFixed(2));
+    svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  }
 }
 
 /* 右向きの矢印（先端(4,0)・矢じりの幅±3・棒の幅±1・棒は x=-4〜0） */
