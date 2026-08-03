@@ -174,8 +174,12 @@ textarea{width:100%;min-height:150px;margin-top:10px;font-family:var(--mono);fon
 /* ---- 式のボタン入力と、打った式の数式表示 ---- */
 .texgo{display:flex;flex-wrap:nowrap;gap:6px}  /* この図形にする／付け足す は必ず横に並べる */
 .keys{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:7px}
-/* ⌫ は枠の大きさを変えず、字だけ大きく（行の高さと左右の余白で元の大きさに戻す） */
-.keys #texBs{font-size:22px;line-height:20px;padding-left:6px;padding-right:6px}
+/* ⌫ は枠の大きさ（41×34px）を変えず、中身だけ大きく。字（U+232B）は端末によって
+   小さく出るので、自分で描いた絵（SVG）にしてある。大きさは font-size と同じ 20px 相当 */
+.keys #texBs{display:inline-flex;align-items:center;justify-content:center;
+  width:41px;height:34px;padding:0;font-size:20px}
+.keys #texBs svg{display:block;height:.74em;width:auto;pointer-events:none;
+  fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
 .keys button{font-family:var(--math);font-size:16px;min-width:38px;padding:6px 10px;line-height:1.25}
 .keys button.wide{font-family:var(--sans);font-size:12.5px}
 .keys .sep{width:1px;align-self:stretch;background:var(--line-2);margin:0 3px}
@@ -353,7 +357,12 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
             <button class="chip wide" data-ins=" (-4 \le x \le 4)" data-line="1" title="その行の終わりに、xの範囲を付け足す">範囲</button>
             <button class="chip wide" data-ins="&#10;">改行</button>
             <span class="sep"></span>
-            <button class="chip" id="texBs" title="1文字消す">⌫</button>
+            <button class="chip" id="texBs" title="1文字消す" aria-label="1文字消す">
+              <svg viewBox="0 0 25 18" aria-hidden="true">
+                <path d="M8.6 1.1 H23.6 V16.9 H8.6 L1.2 9 Z"/>
+                <path d="M12.4 6.1 L18.2 11.9 M18.2 6.1 L12.4 11.9"/>
+              </svg>
+            </button>
           </div>
           <div class="texview" id="texView"></div>
           <textarea id="texIn" spellcheck="false" style="min-height:104px;margin-top:0"
