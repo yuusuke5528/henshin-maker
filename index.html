@@ -280,7 +280,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button class="chip" data-load="A" data-shape="hex">六角</button>
           <button class="chip" data-load="A" data-shape="diamond">ダイヤ</button>
           <button class="chip" data-load="A" data-shape="heart">ハート</button>
-          <button class="chip" data-load="A" data-shape="flower" title="花びら4枚の花">花びら</button>
+          <button class="chip" data-load="A" data-shape="flower" title="花びら5枚の花">花びら</button>
+          <button class="chip" data-load="A" data-shape="upo" title="うぽ（からだ・毛・目・くちばし）">うぽ</button>
           <button class="chip" data-load="A" data-shape="arrowU" title="上向きの矢印">矢印↑</button>
           <button class="chip" data-load="A" data-shape="arrowD" title="下向きの矢印">矢印↓</button>
           <button class="chip" data-load="A" data-shape="arrowL" title="左向きの矢印">矢印←</button>
@@ -308,7 +309,8 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
           <button class="chip" data-load="B" data-shape="hex">六角</button>
           <button class="chip" data-load="B" data-shape="diamond">ダイヤ</button>
           <button class="chip" data-load="B" data-shape="heart">ハート</button>
-          <button class="chip" data-load="B" data-shape="flower" title="花びら4枚の花">花びら</button>
+          <button class="chip" data-load="B" data-shape="flower" title="花びら5枚の花">花びら</button>
+          <button class="chip" data-load="B" data-shape="upo" title="うぽ（からだ・毛・目・くちばし）">うぽ</button>
           <button class="chip" data-load="B" data-shape="arrowU" title="上向きの矢印">矢印↑</button>
           <button class="chip" data-load="B" data-shape="arrowD" title="下向きの矢印">矢印↓</button>
           <button class="chip" data-load="B" data-shape="arrowL" title="左向きの矢印">矢印←</button>
@@ -2228,6 +2230,29 @@ const PRESETS={
       P.push({x:round(r*Math.cos(t),3), y:round(r*Math.sin(t),3)});
     }
     return {segs:[{t:"F",pts:P}]};
+  },
+  /* うぽ。からだのだ円・頭の毛3本・目2本・くちばしの、7本ばらばらの線
+     （プリセットで1本でなく何本か返すのは、これだけ） */
+  upo:()=>{
+    const ell=(cx,cy,rx,ry,n)=>{
+      const P=[];
+      for(let i=0;i<=n;i++){
+        const t=i/n*2*Math.PI;
+        P.push({x:round(cx+rx*Math.cos(t),3), y:round(cy+ry*Math.sin(t),3)});
+      }
+      return {segs:[{t:"F",pts:P}]};
+    };
+    const line=(x0,y0,x1,y1)=>({segs:[{t:"L", a:{x:x0,y:y0}, b:{x:x1,y:y1}}]});
+    return [
+      ell(0,-0.481,4,3.742,160),            // からだ
+      line(-0.928,4.063,-0.792,3.187),      // 頭の毛
+      line( 0.076,4.223, 0.084,3.261),   // 真ん中の毛。真下向き（縦）だと立体に入らないので
+                                         // 0.008 だけ傾けてある（見た目は変わらない）
+      line( 1.172,4.081, 0.846,3.177),
+      line(-1.820,1.667,-0.572,1.667),      // 目
+      line( 0.572,1.667, 1.820,1.667),
+      ell(0,0.481,0.868,0.484,80)           // くちばし
+    ];
   }
 };
 
@@ -2467,7 +2492,9 @@ function bind(){
     state.strokes[b.dataset.clear]=[]; recompute();
   });
   document.querySelectorAll("[data-load]").forEach(b=>b.onclick=()=>{
-    state.strokes[b.dataset.load]=[PRESETS[b.dataset.shape]()]; recompute();
+    const sh=PRESETS[b.dataset.shape]();            // 何本かに分かれた図形（うぽ）もある
+    state.strokes[b.dataset.load]=Array.isArray(sh)?sh:[sh];
+    recompute();
   });
   const loadEx=(a,b)=>{
     state.strokes.A=[a]; state.strokes.B=[b]; state.pairShift=0; recompute();
