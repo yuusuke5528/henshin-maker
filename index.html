@@ -74,6 +74,7 @@ body{
   margin:0; background:var(--paper); color:var(--ink);
   font-family:var(--sans); font-size:14px; line-height:1.65;
   -webkit-text-size-adjust:100%;
+  overscroll-behavior:none;              /* 端まで来たときの画面の跳ね返りを止める */
 }
 .wrap{max-width:1380px;margin:0 auto;padding:16px clamp(12px,2.6vw,26px) 72px;display:flex;flex-direction:column;gap:16px}
 
@@ -109,7 +110,11 @@ button.go:hover{filter:brightness(1.1)}
 .board__hd b{font-weight:600;font-size:13px;letter-spacing:.03em}
 .board__hd .note{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
 .dot{width:9px;height:9px;border-radius:50%;flex:none}
-canvas.draw{display:block;width:100%;background:var(--board);touch-action:none;cursor:crosshair}
+/* 作図の板・立体の板の上では、指でなぞっても画面が動かない（余白をなぞれば動く）。
+   touch-action だけでは効かない端末があるので、JS の touchstart/touchmove でも止めている */
+canvas.draw{display:block;width:100%;background:var(--board);cursor:crosshair;
+  touch-action:none;overscroll-behavior:contain;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .pad{display:flex;background:var(--board)}
 .pad>canvas{flex:1 1 auto;min-width:0}
 .view .pad{background:var(--screen)}
@@ -130,7 +135,9 @@ canvas.draw{display:block;width:100%;background:var(--board);touch-action:none;c
 .view__hd{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--screen-line)}
 .view__hd b{font-size:13px;font-weight:600;letter-spacing:.03em}
 .view__hd .note{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--screen-ink-2)}
-canvas#cv3d{display:block;width:100%;touch-action:none;cursor:grab}
+canvas#cv3d{display:block;width:100%;cursor:grab;
+  touch-action:none;overscroll-behavior:contain;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 canvas#cv3d:active{cursor:grabbing}
 .view__ft{display:flex;flex-wrap:wrap;gap:5px;align-items:center;padding:8px 10px}
 /* 自動回転は大きく、その下に視点、いちばん下にその他 */
@@ -956,15 +963,41 @@ function buildOutline(st){
 }
 
 function buildShape(strokes){
-  const outlines=[], arcs=[];
+  const outlines=[], arcs=[], loners=[];
   for(const st of strokes){
     const o=buildOutline(st);
-    if(!o) continue;
+    if(!o){
+      /* 縦にしか動かない線（まっすぐな毛など）。弧が1つも無いので輪郭にはならないが、
+         立体では「t 一定の線分」として置けるので、ここで拾っておく */
+      const pcs=strokePieces(st).filter(p=>p.dir===0);
+      if(pcs.length){
+        const ys=pcs.flatMap(p=>[p.ya,p.yb]);
+        loners.push({x:pcs[0].x, y0:Math.min(...ys), y1:Math.max(...ys)});
+      }
+      continue;
+    }
     outlines.push(o);
     for(const a of o.arcs){ a.gid=arcs.length; arcs.push(a); }
   }
   const xs=arcs.flatMap(a=>[a.x0,a.x1]);
-  return {outlines, arcs, x0:xs.length?Math.min(...xs):NaN, x1:xs.length?Math.max(...xs):NaN};
+  return {outlines, arcs, loners, x0:xs.length?Math.min(...xs):NaN, x1:xs.length?Math.max(...xs):NaN};
+}
+/* 縦だけの線を立体に足す。相手の図形のその x での値 w と組ませると、
+   相手から見た影は点のままなので、相手の見え方を変えずにこの線だけが増える */
+function addLoners(A,B,lo,hi,curves,rows){
+  const put=(v,which)=>{
+    const src = which==="A" ? B : A;
+    const mid=(v.y0+v.y1)/2;
+    const cand=src.arcs.filter(c=>c.x0<=v.x+1e-6&&c.x1>=v.x-1e-6)
+      .sort((u,w)=>Math.abs(u.f(clamp(v.x,u.x0,u.x1))-mid)-Math.abs(w.f(clamp(v.x,w.x0,w.x1))-mid));
+    if(!cand.length) return;
+    const w=cand[0].f(clamp(v.x,cand[0].x0,cand[0].x1));
+    const P=(u)=> which==="A" ? [v.x,(u+w)/2,(u-w)/2] : [v.x,(w+u)/2,(w-u)/2];
+    curves.push([P(v.y0),P(v.y1)]);
+    rows.push({vert:true, which, v:{x:v.x, y0:Math.min(v.y0,v.y1), y1:Math.max(v.y0,v.y1)}});
+  };
+  for(const v of (A.loners||[])) if(v.x>=lo-1e-6&&v.x<=hi+1e-6) put(v,"A");
+  for(const v of (B.loners||[])) if(v.x>=lo-1e-6&&v.x<=hi+1e-6) put(v,"B");
 }
 
 /* 弧 a を向き d で進み切ったとき、次にどの弧へ移るか */
@@ -1174,6 +1207,7 @@ function buildOnce(shift, simple){
         if(!start(isA?g.arc:mate, isA?mate:g.arc, 1)) break;
       }
       for(const r of runs){ curves.push(r.pts); for(const row of r.rows) rows.push(row); }
+      addLoners(A,B,lo,hi,curves,rows);        // 縦だけの線
       mergeTouching(curves);
       gaps=(findGap(A,covA,lo,hi)?1:0)+(findGap(B,covB,lo,hi)?1:0);
     }
@@ -1295,6 +1329,9 @@ function buildMinimal(A,B,lo,hi,shift){
   for(const o of B.outlines) o.arcs.forEach((b,k)=>{
     const jt=o.joints[k]; if(jt) vertsB.push({x:jt.x, y0:jt.ya, y1:jt.yb, arc:b});
   });
+  // 縦だけの線（まっすぐな毛など）も、同じ「縦の辺」として扱う
+  for(const v of (A.loners||[])) vertsA.push({x:v.x, y0:v.y0, y1:v.y1, arc:null});
+  for(const v of (B.loners||[])) vertsB.push({x:v.x, y0:v.y0, y1:v.y1, arc:null});
   const usedB=new Set();
   const addVert=(pts,which,x,y0,y1)=>{
     curves.push(pts);
@@ -1320,10 +1357,12 @@ function buildMinimal(A,B,lo,hi,shift){
       continue;
     }
     let w=null;
-    const b=partner.get(va.arc.gid);
+    const b=va.arc ? partner.get(va.arc.gid) : null;      // 縦だけの線には弧が無い
     if(b) w=b.f(clamp(va.x,b.x0,b.x1));
     else{
-      const cand=B.arcs.filter(c=>c.x0<=va.x+1e-6&&c.x1>=va.x-1e-6);
+      const m=(va.y0+va.y1)/2;
+      const cand=B.arcs.filter(c=>c.x0<=va.x+1e-6&&c.x1>=va.x-1e-6)
+        .sort((u,v2)=>Math.abs(u.f(clamp(va.x,u.x0,u.x1))-m)-Math.abs(v2.f(clamp(va.x,v2.x0,v2.x1))-m));
       if(cand.length) w=cand[0].f(clamp(va.x,cand[0].x0,cand[0].x1));
     }
     if(w===null) continue;
@@ -1394,6 +1433,20 @@ function overlapScore(curves){
   }
   return round(bad/(N+1)*100,2);
 }
+/* 左右のそろい方。x を反転した点が立体の中に無い点の割合（0 なら左右対称）。
+   左右対称な図形どうしなら立体も左右対称になるのが自然なので、候補を選ぶときに見る */
+function asymScore(curves){
+  const key=(a,b,c)=>a+","+b+","+c;
+  const S=new Set(), pts=[];
+  for(const c of curves) for(const p of c){
+    const a=Math.round(p[0]*1e3), b=Math.round(p[1]*1e3), d=Math.round(p[2]*1e3);
+    S.add(key(a,b,d)); pts.push([a,b,d]);
+  }
+  if(!pts.length) return 0;
+  let miss=0;
+  for(const p of pts) if(!S.has(key(-p[0],p[1],p[2]))) miss++;
+  return miss/pts.length;
+}
 function scoreModel(m){
   let segs=0, len=0;
   for(const c of m.curves) for(let i=1;i<c.length;i++){
@@ -1402,7 +1455,7 @@ function scoreModel(m){
     if(d>1e-7){ segs++; len+=d; }
   }
   return {gaps:m.gaps||0, curves:m.curves.length||1e9, segs:segs||1e9,
-          over:overlapScore(m.curves), len:round(len,3)};
+          over:overlapScore(m.curves), asym:round(asymScore(m.curves),3), len:round(len,3)};
 }
 function buildModel(){
   const cands=[], seen=new Set();
@@ -1415,11 +1468,15 @@ function buildModel(){
     cands.push({m,sc});
   }
   if(!cands.length){ const m=buildOnce(0,true); cands.push({m,sc:scoreModel(m)}); }
-  // 欠けがないこと → 真上で重ならないこと → の順に見て、
+  /* 左右対称にできる組み合わせ（＝いちばん良い候補がほぼ対称）のときだけ、
+     左右のそろい方も見る。もともと左右非対称な図形では見ない（線が増えるだけなので） */
+  const canSym = Math.min(...cands.map(c=>c.sc.asym)) <= 0.05;
+  const asym=(c)=> canSym ? c.sc.asym : 0;
+  // 欠けがないこと → 真上で重ならないこと → 左右がそろっていること → の順に見て、
   // 「線を少なく」なら線分数を、そうでなければ本数を優先する
   cands.sort(state.simple
-    ? (a,b)=>a.sc.gaps-b.sc.gaps||a.sc.over-b.sc.over||a.sc.segs-b.sc.segs||a.sc.curves-b.sc.curves||a.sc.len-b.sc.len
-    : (a,b)=>a.sc.gaps-b.sc.gaps||a.sc.curves-b.sc.curves||a.sc.over-b.sc.over||a.sc.segs-b.sc.segs||a.sc.len-b.sc.len);
+    ? (a,b)=>a.sc.gaps-b.sc.gaps||a.sc.over-b.sc.over||asym(a)-asym(b)||a.sc.segs-b.sc.segs||a.sc.curves-b.sc.curves||a.sc.len-b.sc.len
+    : (a,b)=>a.sc.gaps-b.sc.gaps||a.sc.curves-b.sc.curves||a.sc.over-b.sc.over||asym(a)-asym(b)||a.sc.segs-b.sc.segs||a.sc.len-b.sc.len);
   // 極端に悪い組み合わせは候補から外す
   const best=cands[0].sc;
   const good=cands.filter(c=>c.sc.gaps===best.gaps && c.sc.curves<=Math.max(best.curves+1,2)
@@ -1537,6 +1594,15 @@ function initBoard(key,id,colorVar){
   };
   cv.addEventListener("pointerup",end);
   cv.addEventListener("pointercancel",end);
+  // 板の上を指でなぞったときは画面を動かさない（スマホ・タブレット用。余白はふつうに動く）
+  noScroll(cv);
+}
+/* この板の上での指の動きを、画面のスクロールに使わせない。
+   CSS の touch-action:none だけでは効かない端末があるので、ここでも止める */
+function noScroll(el){
+  const stop=(e)=>{ if(e.cancelable) e.preventDefault(); };
+  el.addEventListener("touchstart",stop,{passive:false});
+  el.addEventListener("touchmove", stop,{passive:false});
 }
 function drawBoard(key){
   const b=boards[key];
@@ -2246,8 +2312,7 @@ const PRESETS={
     return [
       ell(0,-0.481,4,3.742,160),            // からだ
       line(-0.928,4.063,-0.792,3.187),      // 頭の毛
-      line( 0.076,4.223, 0.084,3.261),   // 真ん中の毛。真下向き（縦）だと立体に入らないので
-                                         // 0.008 だけ傾けてある（見た目は変わらない）
+      line( 0.080,4.223, 0.080,3.261),   // 真ん中の毛（まっすぐ縦。addLoners が立体に入れる）
       line( 1.172,4.081, 0.846,3.177),
       line(-1.820,1.667,-0.572,1.667),      // 目
       line( 0.572,1.667, 1.820,1.667),
@@ -2645,6 +2710,7 @@ function bind(){
   const up=e=>{dragging=false;try{cv.releasePointerCapture(e.pointerId);}catch(_){}};
   cv.addEventListener("pointerup",up); cv.addEventListener("pointercancel",up);
   cv.addEventListener("wheel",e=>{state.zoom=clamp(state.zoom*(e.deltaY>0?0.93:1.07),0.35,3.5);markDirty();e.preventDefault();},{passive:false});
+  noScroll(cv);                       // 立体の板の上でも画面を動かさない（回すため）
 
   addEventListener("resize",()=>{drawBoard("A");drawBoard("B");markDirty();});
   matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{drawBoard("A");drawBoard("B");markDirty();});
