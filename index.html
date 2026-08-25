@@ -459,6 +459,20 @@ kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-b
     <textarea id="out" spellcheck="false" placeholder="ここに書き出した内容が入ります（タップして全選択→コピー）"></textarea>
     <p class="hint">立体の座標軸は <span class="m"><i>x</i></span> が横、<span class="m"><i>y</i></span> が奥行き、<span class="m"><i>z</i></span> が高さ。視点①は <span class="m">(0,−1,1)</span> 方向、視点②は <span class="m">(0,1,1)</span> 方向から見た向きです。</p>
   </section>
+
+  <section class="sheet">
+    <h2>保存・読み込み</h2>
+    <p class="lead">いまの図形A・Bを文字にして残せます。その文字をメモやメールに貼っておき、あとでここに貼り付けて「この文字から図形にする」を押すと、そのまま戻ります。</p>
+    <div class="row">
+      <button class="go" id="btnSaveTxt">いまの図形を文字にする</button>
+      <button id="btnCopyTxt">コピー</button>
+      <span class="sep"></span>
+      <button id="btnLoadTxt">この文字から図形にする</button>
+      <span class="note" id="saveMsg"></span>
+    </div>
+    <textarea id="saveBox" spellcheck="false" placeholder="「いまの図形を文字にする」を押すとここに出ます。&#10;保存しておいた文字をここに貼り付けて「この文字から図形にする」を押すと、その図形になります。"></textarea>
+    <p class="hint">文字には図形A・Bの線のほかに、「横幅をそろえる」「線を少なく」「図形Bを描いたとおりに見せる」「対応」の設定も入っています。行の頭の A・B がそれぞれの図形です。</p>
+  </section>
 </div>
 
 <script>
@@ -1184,9 +1198,11 @@ function buildOnce(shift, simple){
       const used={A:new Set(), B:new Set()};
       const covA=new Map(), covB=new Map();
       const runs=[];
+      let total=0;                       // たどった点の数（多すぎたら打ち切る＝どうせ選ばれない）
       const start=(a,b,d,x)=>{
         const r=traceWire(A,B,a,b,d,used,x);
         if(r.pts.length<2) return false;
+        total+=r.pts.length;
         runs.push(r);
         for(const [g,s,e] of r.spans.A) addSpan(covA,g,s,e);
         for(const [g,s,e] of r.spans.B) addSpan(covB,g,s,e);
@@ -1196,15 +1212,18 @@ function buildOnce(shift, simple){
       const first=A.arcs[0];
       const fb=pickPartner(first,B,clamp(first.x0,lo,hi),shift);
       if(fb) start(first,fb,1);
-      for(let guard=0; guard<10; guard++){
-        const g = findGap(A,covA,lo,hi) || findGap(B,covB,lo,hi);
+      // 覆えていない所からたどり直す。うまくいかない所は飛ばして次へ（打ち切らない）
+      for(let guard=0; guard<60; guard++){
+        if(total>20000) break;
+        const gA=findGap(A,covA,lo,hi);
+        const g = gA || findGap(B,covB,lo,hi);
         if(!g) break;
-        const isA = A.arcs.indexOf(g.arc)>=0;
+        const isA = !!gA;
         const x=clamp(g.x,lo,hi);
         const mate = isA ? pickPartner(g.arc,B,x,shift) : pickPartner(g.arc,A,x,shift);
-        if(!mate) break;
         // 弧の端から始めると、たどり終えたときに輪が閉じる
-        if(!start(isA?g.arc:mate, isA?mate:g.arc, 1)) break;
+        if(!mate || !start(isA?g.arc:mate, isA?mate:g.arc, 1))
+          addSpan(isA?covA:covB, g.arc.gid, g.x, Math.min(g.x+0.01, Math.min(g.arc.x1,hi)));
       }
       for(const r of runs){ curves.push(r.pts); for(const row of r.rows) rows.push(row); }
       addLoners(A,B,lo,hi,curves,rows);        // 縦だけの線
@@ -1304,20 +1323,31 @@ function buildMinimal(A,B,lo,hi,shift){
     partner.set(a.gid,b);
     push(a,b,Math.max(s,b.x0),Math.min(e,b.x1));
   }
-  // 使われていない所を、A側・B側の両方について埋める
-  for(let guard=0; guard<60; guard++){
+  /* 使われていない所を、A側・B側の両方について埋める。
+     相手は「その x から右へ伸びている弧」だけ（右端がちょうど x で終わる弧を選ぶと
+     幅ゼロになって1つも埋まらない）。どうしても埋められない所は、そこだけ飛ばして次へ進む
+     （ここで打ち切ると、残り全部が埋まらないまま「欠けあり」になって、
+      ぐちゃぐちゃな候補の方が選ばれてしまう） */
+  let missed=0;
+  for(let guard=0; guard<400; guard++){
     let isA=true, g=findGap(A,covA,lo,hi);
     if(!g){ isA=false; g=findGap(B,covB,lo,hi); }
     if(!g) break;
+    const cov = isA?covA:covB;
     const other = isA?B:A;
-    const cand=other.arcs.filter(c=>c.x0<=g.x+1e-6&&c.x1>=g.x-1e-6);
-    if(!cand.length) break;
-    const y=g.arc.f(clamp(g.x,g.arc.x0,g.arc.x1));
-    cand.sort((u,v)=>Math.abs(u.f(clamp(g.x,u.x0,u.x1))-y)-Math.abs(v.f(clamp(g.x,v.x0,v.x1))-y));
-    const m=cand[0];
-    const x1=Math.min(g.arc.x1, m.x1, hi);
-    if(x1-g.x<1e-6) break;
-    push(isA?g.arc:m, isA?m:g.arc, g.x, x1);
+    const cand=other.arcs.filter(c=>c.x0<=g.x+1e-6 && c.x1>=g.x+2e-3);
+    let filled=false;
+    if(cand.length){
+      const y=g.arc.f(clamp(g.x,g.arc.x0,g.arc.x1));
+      cand.sort((u,v)=>Math.abs(u.f(clamp(g.x,u.x0,u.x1))-y)-Math.abs(v.f(clamp(g.x,v.x0,v.x1))-y));
+      const m=cand[0];
+      const x1=Math.min(g.arc.x1, m.x1, hi);
+      if(x1-g.x>2e-3){ push(isA?g.arc:m, isA?m:g.arc, g.x, x1); filled=true; }
+    }
+    if(!filled){                       // 埋められない所は飛ばす（あとで欠けとして数える）
+      addSpan(cov, g.arc.gid, g.x, Math.min(g.x+0.01, Math.min(g.arc.x1,hi)));
+      missed++;
+    }
   }
   /* 縦の辺。
      同じ x に A と B の両方の縦の辺があれば、それどうしを組ませる。
@@ -1375,7 +1405,7 @@ function buildMinimal(A,B,lo,hi,shift){
     const w=cand[0].f(clamp(vb.x,cand[0].x0,cand[0].x1));
     addVert([[vb.x,(w+vb.y0)/2,(w-vb.y0)/2],[vb.x,(w+vb.y1)/2,(w-vb.y1)/2]],"B",vb.x,vb.y0,vb.y1);
   });
-  const rest=(findGap(A,covA,lo,hi)?1:0)+(findGap(B,covB,lo,hi)?1:0);
+  const rest=(findGap(A,covA,lo,hi)?1:0)+(findGap(B,covB,lo,hi)?1:0)+(missed?1:0);
   return {curves:chainPieces(curves), rows, gaps:rest};
 }
 
@@ -1802,6 +1832,66 @@ function download(name,text,mime){
   const a=document.createElement("a");
   a.href=URL.createObjectURL(b); a.download=name; a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+/* =================================================================
+   保存・読み込み（図形を文字にして、あとで戻す）
+   1行に1本ぶん。行の頭が A / B、そのあとに線を ; で並べる。
+     L x,y x,y            線分
+     C cx,cy r a0 a1      円弧
+     F x,y x,y x,y ...    折れ線
+   S の行は設定（横幅をそろえる／線を少なく／Bをそのまま／対応）。
+   読むときは分からない行を読み飛ばすので、前後に文章が付いていても平気。
+   ================================================================= */
+const SAVE_HEAD="henshin1";
+function shapesToText(){
+  const n=(v)=>String(round(v,4));      // 0.0001 きざみ（画面では見分けられない細かさ）
+  const L=[SAVE_HEAD];
+  L.push("S "+[state.fitx?1:0, state.simple?1:0, state.flipB?1:0, state.pairShift|0].join(" "));
+  for(const k of ["A","B"]) for(const st of state.strokes[k]){
+    const segs=[];
+    for(const g of st.segs){
+      if(g.t==="L") segs.push(`L ${n(g.a.x)},${n(g.a.y)} ${n(g.b.x)},${n(g.b.y)}`);
+      else if(g.t==="A"){                                   // 円弧の角は細かく（2π を丸めると輪がわずかに開く）
+        const m=(v)=>String(v);            // 2π などをそのまま残す
+        segs.push(`C ${m(g.cx)},${m(g.cy)} ${m(g.r)} ${m(g.a0)} ${m(g.a1)}`);
+      }
+      else if(g.pts&&g.pts.length>1) segs.push("F "+g.pts.map(p=>`${n(p.x)},${n(p.y)}`).join(" "));
+    }
+    if(segs.length) L.push(k+" "+segs.join(" ; "));
+  }
+  return L.join("\n");
+}
+function textToShapes(text){
+  const out={A:[],B:[]}; let set=null, count=0;
+  for(const raw of String(text).split(/\r?\n/)){
+    const line=raw.trim();
+    if(!line) continue;
+    const m=line.match(/^([SAB])[\s:]+(.*)$/i);
+    if(!m) continue;
+    const tag=m[1].toUpperCase(), body=m[2];
+    if(tag==="S"){
+      const v=body.trim().split(/[\s,]+/).filter(u=>u!=="").map(Number);
+      if(v.length>=3&&v.every(u=>isFinite(u))) set={fitx:!!v[0], simple:!!v[1], flipB:!!v[2], shift:(v[3]|0)||0};
+      continue;
+    }
+    const segs=[];
+    for(const part of body.split(";")){
+      const t=part.trim();
+      if(!t) continue;
+      const kind=t[0].toUpperCase();
+      const v=t.slice(1).trim().split(/[\s,]+/).filter(u=>u!=="").map(Number).filter(u=>isFinite(u));
+      if(kind==="L"&&v.length>=4) segs.push({t:"L", a:{x:v[0],y:v[1]}, b:{x:v[2],y:v[3]}});
+      else if(kind==="C"&&v.length>=5) segs.push({t:"A", cx:v[0], cy:v[1], r:v[2], a0:v[3], a1:v[4]});
+      else if(kind==="F"&&v.length>=4){
+        const pts=[];
+        for(let i=0;i+1<v.length;i+=2) pts.push({x:v[i], y:v[i+1]});
+        if(pts.length>1) segs.push({t:"F", pts});
+      }
+    }
+    if(segs.length){ out[tag].push({segs}); count++; }
+  }
+  return {shapes:out, count, set};
 }
 
 /* =================================================================
@@ -2663,6 +2753,36 @@ function bind(){
     const a=document.createElement("a");
     a.href=document.getElementById("cv3d").toDataURL("image/png"); a.download="henshin3d.png"; a.click();
   };
+  // 保存・読み込み
+  const saveBox=document.getElementById("saveBox"), saveMsg=document.getElementById("saveMsg");
+  const showSave=()=>{
+    saveBox.value=shapesToText();
+    saveMsg.textContent=`図形A ${state.strokes.A.length}本・図形B ${state.strokes.B.length}本を文字にしました`;
+  };
+  document.getElementById("btnSaveTxt").onclick=showSave;
+  document.getElementById("btnCopyTxt").onclick=async()=>{
+    if(!saveBox.value.trim()) showSave();
+    saveBox.focus(); saveBox.select();
+    let ok=false;
+    try{ await navigator.clipboard.writeText(saveBox.value); ok=true; }
+    catch(_){ try{ ok=document.execCommand("copy"); }catch(__){} }
+    saveMsg.textContent = ok ? "コピーしました" : "コピーできませんでした。枠の中を長押しして選び、コピーしてください";
+  };
+  document.getElementById("btnLoadTxt").onclick=()=>{
+    const r=textToShapes(saveBox.value);
+    if(!r.count){ saveMsg.textContent="読める図形がありませんでした（保存した文字を貼り付けてください）"; return; }
+    state.strokes.A=r.shapes.A; state.strokes.B=r.shapes.B;
+    if(r.set){
+      state.fitx=r.set.fitx; state.simple=r.set.simple; state.flipB=r.set.flipB; state.pairShift=r.set.shift;
+      document.getElementById("optFitX").checked=state.fitx;
+      document.getElementById("optSimple").checked=state.simple;
+      document.getElementById("optFlipB").checked=state.flipB;
+      if(state.view===2) state.roll=state.flipB?0:180;
+    }
+    recompute();
+    saveMsg.textContent=`図形A ${r.shapes.A.length}本・図形B ${r.shapes.B.length}本を読み込みました`;
+  };
+
   document.getElementById("optBun").onchange=()=>{
     const o=document.getElementById("out"); if(o.value.trim()) o.value=texOut();
   };
